@@ -7,7 +7,7 @@ import * as net from "net";
 const BACKEND_HOST = "127.0.0.1";
 const isDev = !app.isPackaged;
 const PORTAL_PARTITION = "persist:uzkad-portal";
-const DEFAULT_LOGIN_URL = "https://sap.kadastr.uz/#/home";
+const DEFAULT_LOGIN_URL = "https://mulk.kadastr.uz/index.jsp";
 
 let backendPort = 8000;
 let backendUrl = `http://${BACKEND_HOST}:${backendPort}`;
@@ -145,7 +145,7 @@ function installPortalCapture(): void {
   captureInstalled = true;
 }
 
-/** Open the SAP portal login window (sap.kadastr.uz). */
+/** Open the cadastre portal window (mulk.kadastr.uz, or a supplied link). */
 async function openLoginWindow(loginUrl: string): Promise<void> {
   installPortalCapture();
   if (loginWindow && !loginWindow.isDestroyed()) {
@@ -155,7 +155,7 @@ async function openLoginWindow(loginUrl: string): Promise<void> {
   loginWindow = new BrowserWindow({
     width: 1200,
     height: 860,
-    title: "UZKAD — Tizimga kirish (sap.kadastr.uz)",
+    title: "UZKAD — Portal (mulk.kadastr.uz)",
     backgroundColor: "#ffffff",
     parent: mainWindow ?? undefined,
     webPreferences: {

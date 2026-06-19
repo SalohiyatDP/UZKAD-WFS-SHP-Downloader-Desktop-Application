@@ -70,8 +70,8 @@ def session_status() -> dict:
 
 @app.get("/api/session/login-url")
 def session_login_url() -> dict:
-    """The portal URL the in-app login window should open."""
-    return {"url": config.SAP_LOGIN_URL, "session_domain": config.SESSION_COOKIE_DOMAIN}
+    """The portal URL the in-app login window should open by default."""
+    return {"url": config.PORTAL_URL, "session_domain": config.SESSION_COOKIE_DOMAIN}
 
 
 @app.post("/api/session/cookies")

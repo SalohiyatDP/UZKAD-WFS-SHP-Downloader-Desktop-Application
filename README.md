@@ -71,13 +71,14 @@ a download can be **resumed** (already-completed cells are skipped).
 - A desktop browser (Chrome/Edge/Brave/Chromium/Firefox) where you have signed
   in to `https://mulk.kadastr.uz`.
 
-- A desktop browser is **optional**: the app has a built-in login window
-  (`sap.kadastr.uz`). The `browser_cookie3` fallback can reuse an existing
-  desktop-browser session if you prefer.
+- A desktop browser is **optional**: the app has a built-in portal window
+  (`mulk.kadastr.uz`) where you open a ready, signed-in portal link. The
+  `browser_cookie3` fallback can reuse an existing desktop-browser session too.
 
-> Authentication: the in-app login window signs you in via OneID / ERI on the
-> SAP portal and captures the `kadastr.uz` cookies (and bearer token, if the
-> portal uses one) for the WFS endpoint. No credentials are stored by the app.
+> Authentication: open a ready portal link (e.g.
+> `https://mulk.kadastr.uz/index.jsp#portal/details/transaction/<uuid>/`) in the
+> app's portal window. The app captures the `kadastr.uz` cookies (and bearer
+> token, if the portal uses one) for the WFS endpoint. No credentials are stored.
 
 ---
 
@@ -129,14 +130,15 @@ npm run package                  # electron-builder; bundles backend/ as a resou
 
 ## Using the app
 
-1. **Tizimga kirish (in-app login).** In the **"1. Tizimga kirish"** panel click
-   **"Tizimga kirish (sap.kadastr.uz)"** — the app opens a portal login window.
-   Sign in with **OneID / ERI** and open the **map (xarita)** section so the WFS
-   session is established. Then click **"Sessiyani import qilish"**: the app
-   captures the `kadastr.uz` cookies and any auth token and hands them to the
-   backend. The **session badge** turns green.
+1. **Sessiya (portal havolasi).** In the **"1. Tizimga kirish / sessiya"** panel,
+   paste a ready, signed-in portal link (e.g. a `mulk.kadastr.uz`
+   `index.jsp#portal/details/transaction/<uuid>/` URL) into the field and click
+   **"Portalni ochish"**. The app opens it in a portal window; sign in with
+   **OneID / ERI** if prompted. Once the page loads with your session, click
+   **"Sessiyani import qilish"**: the app captures the `kadastr.uz` cookies and
+   any auth token and hands them to the backend. The **session badge** turns green.
    *(If you are already signed in to `mulk.kadastr.uz` in a desktop browser, the
-   app can also auto-detect those cookies as a fallback.)*
+   app can also auto-detect those cookies — just press "Sessiyani import qilish".)*
 2. If a previous run was interrupted, a banner offers to **resume** it.
 3. Choose **Viloyat** (region), **Tuman** (district, or *Hammasi* = all),
    **Qatlam** (layer), **Grid o‘lchami** and one or more **Format**s.

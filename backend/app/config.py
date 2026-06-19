@@ -105,10 +105,15 @@ SUPPORTED_BROWSERS = ["chrome", "edge", "brave", "chromium", "firefox"]
 # The cookie domain we care about for the UZKAD session.
 SESSION_DOMAIN = "mulk.kadastr.uz"
 
-# Portal the user logs into (OneID / ERI), then opens the map section. The
-# in-app Electron login window navigates here; cookies/auth captured for the
-# whole kadastr.uz domain are reused for the WFS endpoint.
-SAP_LOGIN_URL = os.environ.get("UZKAD_SAP_LOGIN_URL", "https://sap.kadastr.uz/#/home")
+# Portal the user opens (already signed in via OneID / ERI in another window).
+# Using mulk.kadastr.uz directly means the captured cookies are first-party to
+# the WFS host, which is more reliable than a cross-subdomain (sap) session.
+# Accepts any ready portal link, e.g.
+# https://mulk.kadastr.uz/index.jsp#portal/details/transaction/<uuid>/
+PORTAL_URL = os.environ.get(
+    "UZKAD_PORTAL_URL",
+    os.environ.get("UZKAD_SAP_LOGIN_URL", "https://mulk.kadastr.uz/index.jsp"),
+)
 
 # Parent domain whose cookies (and bearer token) authorise the WFS endpoint.
 SESSION_COOKIE_DOMAIN = "kadastr.uz"

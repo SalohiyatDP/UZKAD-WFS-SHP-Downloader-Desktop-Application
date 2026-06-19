@@ -2,11 +2,12 @@
 
 There are two ways the app obtains an authorised session:
 
-1. **In-app login (preferred).** The Electron frontend opens a login window at
-   ``sap.kadastr.uz/#/home``; the user signs in with OneID / ERI and opens the
-   map section. Electron then captures the ``kadastr.uz`` cookies and any
-   ``Authorization`` bearer token used by the portal's API/WFS calls and POSTs
-   them here (``set_session``). These are reused for WFS requests.
+1. **In-app portal session (preferred).** The Electron frontend opens a portal
+   window at ``mulk.kadastr.uz`` (any ready portal link, e.g. a transaction
+   details URL). The user signs in (OneID / ERI) if prompted — they may already
+   be signed in in another window. Electron then captures the ``kadastr.uz``
+   cookies and any ``Authorization`` bearer token used by the portal's API/WFS
+   calls and POSTs them here (``set_session``). These are reused for WFS requests.
 
 2. **Browser cookie auto-detection (fallback).** If no in-app session has been
    captured, ``browser_cookie3`` is used to read cookies for the WFS domain
@@ -208,8 +209,8 @@ def get_session_status() -> Dict[str, object]:
         "cookie_count": 0,
         "has_token": False,
         "message": (
-            "Tizimga kirilmagan. \"Tizimga kirish\" tugmasi orqali "
-            "sap.kadastr.uz ga kiring va xarita bo‘limini oching."
+            "Tizimga kirilmagan. \"Portalni ochish\" orqali "
+            "mulk.kadastr.uz portal havolasini oching va sessiyani import qiling."
         ),
     }
 

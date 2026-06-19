@@ -353,3 +353,31 @@ select {
 .ok-text {
   color: var(--green);
 }
+
+
+.step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 260px;
+}
+.url-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.url-input {
+  flex: 1;
+  min-width: 240px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 13px;
+}
+.url-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
