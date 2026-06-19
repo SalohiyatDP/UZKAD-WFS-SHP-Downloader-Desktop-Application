@@ -17,8 +17,10 @@ export interface Layer {
 
 export interface SessionStatus {
   authenticated: boolean;
+  source?: string | null;
   browser: string | null;
   cookie_count: number;
+  has_token?: boolean;
   message: string;
 }
 

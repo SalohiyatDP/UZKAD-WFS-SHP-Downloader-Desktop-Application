@@ -18,8 +18,14 @@ from .database import FeatureDB
 from .exporter import Exporter
 from .job_manager import JobManager
 from .logging_setup import get_logger
-from .models import DownloadRequest, ExportFormat
-from .session import get_cookies_for_domain, get_session_status
+from .models import DownloadRequest, ExportFormat, SetSessionRequest
+from .session import (
+    clear_session,
+    get_active_cookies,
+    get_active_headers,
+    get_session_status,
+    set_session,
+)
 from .wfs_client import WFSClient, WFSError, build_region_filter
 from .grid_generator import estimate_cell_count
 
@@ -62,6 +68,24 @@ def session_status() -> dict:
     return get_session_status()
 
 
+@app.get("/api/session/login-url")
+def session_login_url() -> dict:
+    """The portal URL the in-app login window should open."""
+    return {"url": config.SAP_LOGIN_URL, "session_domain": config.SESSION_COOKIE_DOMAIN}
+
+
+@app.post("/api/session/cookies")
+def set_session_cookies(req: SetSessionRequest) -> dict:
+    """Receive cookies / auth headers captured by the in-app login window."""
+    return set_session(cookies=req.cookies, headers=req.headers, source=req.source)
+
+
+@app.post("/api/session/clear")
+def clear_session_endpoint() -> dict:
+    clear_session()
+    return get_session_status()
+
+
 # --------------------------------------------------------------------------- #
 # Reference data
 # --------------------------------------------------------------------------- #
@@ -77,8 +101,7 @@ def list_districts(region: str, refresh: bool = False, layer: Optional[str] = No
         return {"region": region, "districts": static, "source": "static"}
 
     # Try to refresh distinct districts from the live WFS.
-    cookies, _ = get_cookies_for_domain()
-    client = WFSClient(cookies=cookies)
+    client = WFSClient(cookies=get_active_cookies(), headers=get_active_headers())
     target_layer = layer or config.LAYERS[0]["name"]
     try:
         cql = build_region_filter(region, None)

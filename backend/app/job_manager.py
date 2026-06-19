@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 from .database import FeatureDB
 from .downloader import GridDownloader
 from .logging_setup import get_logger
-from .session import get_cookies_for_domain
+from .session import get_active_cookies, get_active_headers, get_session_status
 from .wfs_client import WFSClient
 
 log = get_logger("jobs")
@@ -42,8 +42,9 @@ class JobManager:
         export_crs: str = "EPSG:4326",
         auto_export: bool = True,
     ) -> str:
-        cookies, browser = get_cookies_for_domain()
-        client = WFSClient(cookies=cookies, proxy=proxy)
+        cookies = get_active_cookies()
+        headers = get_active_headers()
+        client = WFSClient(cookies=cookies, headers=headers, proxy=proxy)
         db = self.db
 
         def _cb(progress: Dict[str, Any]) -> None:
@@ -79,7 +80,10 @@ class JobManager:
         thread = threading.Thread(target=_run, name=f"download-{jid}", daemon=True)
         self._threads[jid] = thread
         thread.start()
-        log.info("Started job %s (%s/%s) browser=%s", jid, region, district, browser)
+        log.info(
+            "Started job %s (%s/%s) cookies=%s token=%s",
+            jid, region, district, len(cookies), bool(headers.get("Authorization")),
+        )
         return jid
 
     # ------------------------------------------------------------------ #

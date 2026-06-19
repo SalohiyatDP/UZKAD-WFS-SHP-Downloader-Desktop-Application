@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Api, exportFileUrl, subscribeJob } from "./api";
 import { SessionBadge } from "./components/SessionBadge";
+import { LoginPanel } from "./components/LoginPanel";
 import { ProgressPanel } from "./components/ProgressPanel";
 import type {
   AppConfig,
@@ -231,6 +232,8 @@ export default function App() {
       </header>
 
       {error && <div className="alert error">{error}</div>}
+
+      <LoginPanel session={session} onSessionChange={refreshSession} />
 
       {resumable && (
         <div className="alert info">

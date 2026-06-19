@@ -18,6 +18,7 @@ frontend/release/
 storage/*.sqlite
 storage/*.sqlite-wal
 storage/*.sqlite-shm
+storage/*.json
 exports/*
 logs/*.log
 

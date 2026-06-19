@@ -26,7 +26,7 @@ project/
 │   │   ├── database.py      # SQLite features store + dedup + resume bookkeeping
 │   │   ├── downloader.py    # parallel grid downloader (ThreadPoolExecutor)
 │   │   ├── exporter.py      # SHP / GPKG / GeoJSON / KML / DXF (geopandas/pyogrio)
-│   │   ├── session.py       # browser cookie extraction (Chrome/Edge/Brave/...)
+│   │   ├── session.py       # in-app login session capture + browser fallback
 │   │   ├── job_manager.py   # job lifecycle + live progress
 │   │   └── main.py          # FastAPI app + WebSocket progress
 │   ├── tests/test_pipeline.py
@@ -71,9 +71,13 @@ a download can be **resumed** (already-completed cells are skipped).
 - A desktop browser (Chrome/Edge/Brave/Chromium/Firefox) where you have signed
   in to `https://mulk.kadastr.uz`.
 
-> Cookie auto-detection uses `browser_cookie3`. On some systems reading the
-> browser cookie store requires the browser to be closed or appropriate OS
-> permissions.
+- A desktop browser is **optional**: the app has a built-in login window
+  (`sap.kadastr.uz`). The `browser_cookie3` fallback can reuse an existing
+  desktop-browser session if you prefer.
+
+> Authentication: the in-app login window signs you in via OneID / ERI on the
+> SAP portal and captures the `kadastr.uz` cookies (and bearer token, if the
+> portal uses one) for the WFS endpoint. No credentials are stored by the app.
 
 ---
 
@@ -125,9 +129,15 @@ npm run package                  # electron-builder; bundles backend/ as a resou
 
 ## Using the app
 
-1. Sign in to `https://mulk.kadastr.uz` in your browser (OneID / ERI).
-2. Launch the app — the **session badge** shows whether cookies were detected.
-   If a previous run was interrupted, a banner offers to **resume** it.
+1. **Tizimga kirish (in-app login).** In the **"1. Tizimga kirish"** panel click
+   **"Tizimga kirish (sap.kadastr.uz)"** — the app opens a portal login window.
+   Sign in with **OneID / ERI** and open the **map (xarita)** section so the WFS
+   session is established. Then click **"Sessiyani import qilish"**: the app
+   captures the `kadastr.uz` cookies and any auth token and hands them to the
+   backend. The **session badge** turns green.
+   *(If you are already signed in to `mulk.kadastr.uz` in a desktop browser, the
+   app can also auto-detect those cookies as a fallback.)*
+2. If a previous run was interrupted, a banner offers to **resume** it.
 3. Choose **Viloyat** (region), **Tuman** (district, or *Hammasi* = all),
    **Qatlam** (layer), **Grid o‘lchami** and one or more **Format**s.
 4. Click **EXPORT**. The app collects features through the authorized session,
@@ -176,6 +186,9 @@ WFS layers, default attributes, grid sizes, paging and worker limits are in
 | GET | `/api/health` | Health check |
 | GET | `/api/config` | Filesystem locations (exports dir, etc.) |
 | GET | `/api/session` | Browser session / cookie status |
+| GET | `/api/session/login-url` | Portal login URL for the in-app window |
+| POST | `/api/session/cookies` | Store cookies/auth captured by the login window |
+| POST | `/api/session/clear` | Clear the captured session |
 | GET | `/api/regions` | List regions |
 | GET | `/api/regions/{region}/districts?refresh=` | Districts (static or live WFS) |
 | GET | `/api/layers` | Available WFS layers |

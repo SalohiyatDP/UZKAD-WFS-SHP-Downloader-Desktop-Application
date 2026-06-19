@@ -46,6 +46,10 @@ export const Api = {
   health: () => api<{ status: string }>("/api/health"),
   config: () => api<AppConfig>("/api/config"),
   session: () => api<SessionStatus>("/api/session"),
+  loginUrl: () =>
+    api<{ url: string; session_domain: string }>("/api/session/login-url"),
+  clearSession: () =>
+    api<SessionStatus>("/api/session/clear", { method: "POST" }),
   regions: () => api<{ regions: string[] }>("/api/regions"),
   districts: (region: string, refresh = false, layer?: string) =>
     api<{ region: string; districts: string[]; source: string }>(

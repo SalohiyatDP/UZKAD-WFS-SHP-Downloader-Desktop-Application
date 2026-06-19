@@ -304,3 +304,52 @@ select {
   gap: 10px;
   margin-top: 14px;
 }
+
+
+/* Login / session setup panel */
+.login-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+}
+.login-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.login-head h3 {
+  margin: 0 0 4px;
+}
+.login-steps {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.login-steps li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--text);
+}
+.step-no {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ok-text {
+  color: var(--green);
+}

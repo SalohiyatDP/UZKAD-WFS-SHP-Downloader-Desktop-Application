@@ -31,6 +31,7 @@ class WFSClient:
         cookies: Optional[Dict[str, str]] = None,
         timeout: int = config.REQUEST_TIMEOUT,
         proxy: Optional[str] = None,
+        headers: Optional[Dict[str, str]] = None,
     ) -> None:
         self.base_url = base_url
         self.timeout = timeout
@@ -41,6 +42,9 @@ class WFSClient:
                 "Accept": "application/json, */*",
             }
         )
+        if headers:
+            # e.g. {"Authorization": "Bearer ..."} captured from the portal.
+            self.session.headers.update({k: v for k, v in headers.items() if v})
         if cookies:
             self.session.cookies.update(cookies)
         if proxy:

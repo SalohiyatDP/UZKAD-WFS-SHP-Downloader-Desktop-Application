@@ -9,4 +9,8 @@ contextBridge.exposeInMainWorld("uzkad", {
     ipcRenderer.invoke("open-external", url),
   openPath: (target: string): Promise<string> =>
     ipcRenderer.invoke("open-path", target),
+  openLogin: (loginUrl: string): Promise<void> =>
+    ipcRenderer.invoke("open-login", loginUrl),
+  importSession: (): Promise<unknown> => ipcRenderer.invoke("import-session"),
+  logoutSession: (): Promise<unknown> => ipcRenderer.invoke("logout-session"),
 });
