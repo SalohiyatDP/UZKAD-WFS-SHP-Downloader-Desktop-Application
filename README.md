@@ -127,11 +127,16 @@ npm run package                  # electron-builder; bundles backend/ as a resou
 
 1. Sign in to `https://mulk.kadastr.uz` in your browser (OneID / ERI).
 2. Launch the app — the **session badge** shows whether cookies were detected.
+   If a previous run was interrupted, a banner offers to **resume** it.
 3. Choose **Viloyat** (region), **Tuman** (district, or *Hammasi* = all),
    **Qatlam** (layer), **Grid o‘lchami** and one or more **Format**s.
-4. Click **EXPORT** to start collecting. Watch the progress panel: downloaded
-   cells, found objects, duplicates removed, speed and ETA.
-5. When finished, click **Faylga eksport** to write the files into `exports/`.
+4. Click **EXPORT**. The app collects features through the authorized session,
+   removes duplicates, and — as soon as collection finishes — **automatically
+   writes the chosen file(s)** into `exports/`. The progress panel shows
+   downloaded cells, found objects, duplicates removed, speed and ETA.
+5. When finished, the produced files are listed with **clickable download
+   links** and a **"Papkani ochish"** button to open the exports folder.
+   Use **"Qayta eksport"** to re-export the same data to another format.
 
 ### Example
 
@@ -149,9 +154,15 @@ Environment variables (all optional):
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `UZKAD_WFS_URL` | `https://mulk.kadastr.uz/gis/wfs` | WFS endpoint |
+| `UZKAD_WFS_BBOX_SRS` | `EPSG:3857` | CRS token in the WFS BBOX param (use URN form if needed) |
+| `UZKAD_REGION_BBOX_PADDING` | `0.05` | Degrees of padding around region bbox |
 | `UZKAD_DB_PATH` | `storage/features.sqlite` | SQLite database path |
 | `UZKAD_EXPORTS_DIR` | `exports/` | Export output directory |
 | `UZKAD_PYTHON` | `python3` | Interpreter Electron uses to start backend |
+
+> The backend port is chosen automatically by Electron (a free port is picked at
+> launch), so a busy port 8000 is no longer a problem. The renderer discovers the
+> URL through the preload bridge.
 
 WFS layers, default attributes, grid sizes, paging and worker limits are in
 `backend/app/config.py`.
@@ -163,6 +174,7 @@ WFS layers, default attributes, grid sizes, paging and worker limits are in
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/health` | Health check |
+| GET | `/api/config` | Filesystem locations (exports dir, etc.) |
 | GET | `/api/session` | Browser session / cookie status |
 | GET | `/api/regions` | List regions |
 | GET | `/api/regions/{region}/districts?refresh=` | Districts (static or live WFS) |
@@ -197,8 +209,14 @@ python -m tests.test_pipeline
 
 - Geometry is stored in **EPSG:3857** (the source CRS) and reprojected on
   export (default **EPSG:4326**). GeoJSON/KML are always written in WGS84.
+- Exports are **streamed from SQLite in batches** (`fiona`), so whole-province
+  exports with millions of geometries do not need to fit in memory.
+- The region grid uses approximate bounding boxes, **padded** by
+  `UZKAD_REGION_BBOX_PADDING` degrees and validated against the layer's true
+  WGS84 extent (from WFS GetCapabilities) so edge features are not clipped.
 - DXF carries geometry only (no attributes), as per the DXF format.
-- The bundled region bounding boxes are approximate but generous; empty grid
-  cells simply return zero features.
 - Reading browser cookies depends on OS permissions and the browser's cookie
   encryption; if detection fails, sign in again and refresh the session badge.
+- Large regions can require **tens of thousands of cell requests** and take a
+  long time; the UI warns when the estimate is high. Pause/resume and the
+  resume-last-session banner help with long runs.

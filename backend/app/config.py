@@ -33,8 +33,19 @@ OUTPUT_FORMAT = "application/json"  # GeoJSON
 
 # All UZKAD spatial data is published in Web Mercator.
 SOURCE_CRS = "EPSG:3857"
+# CRS token used inside the WFS BBOX parameter. Some GeoServer deployments
+# prefer the URN form (urn:ogc:def:crs:EPSG::3857); override via env if needed.
+WFS_BBOX_SRS = os.environ.get("UZKAD_WFS_BBOX_SRS", SOURCE_CRS)
 # Common output CRS for exports (WGS84 lon/lat). SHP/.prj will use the chosen one.
 DEFAULT_EXPORT_CRS = "EPSG:4326"
+
+# Padding (in degrees) added around a region bounding box before building the
+# grid, so approximate region extents never clip features at the edges.
+REGION_BBOX_PADDING_DEG = float(os.environ.get("UZKAD_REGION_BBOX_PADDING", "0.05"))
+
+# Batch size used when streaming features out of SQLite during export, to keep
+# memory bounded for very large regions.
+EXPORT_BATCH_SIZE = 5000
 
 # GeoServer paging / safety limits.
 DEFAULT_PAGE_SIZE = 1000          # features fetched per WFS page

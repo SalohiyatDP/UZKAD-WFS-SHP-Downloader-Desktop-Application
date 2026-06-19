@@ -38,6 +38,9 @@ class JobManager:
         proxy: Optional[str] = None,
         resume: bool = False,
         job_id: Optional[str] = None,
+        formats: Optional[list] = None,
+        export_crs: str = "EPSG:4326",
+        auto_export: bool = True,
     ) -> str:
         cookies, browser = get_cookies_for_domain()
         client = WFSClient(cookies=cookies, proxy=proxy)
@@ -61,6 +64,9 @@ class JobManager:
                     grid_size=grid_size,
                     max_workers=max_workers,
                     resume=resume,
+                    formats=formats,
+                    export_crs=export_crs,
+                    auto_export=auto_export,
                 )
             except Exception as exc:  # noqa: BLE001
                 log.exception("Job %s crashed", jid)

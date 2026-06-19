@@ -46,6 +46,15 @@ export interface DownloadRequest {
   formats: ExportFormat[];
   max_workers: number;
   export_crs: string;
+  auto_export: boolean;
+}
+
+export interface AppConfig {
+  version: string;
+  exports_dir: string;
+  storage_dir: string;
+  logs_dir: string;
+  wfs_url: string;
 }
 
 export interface LastJob {

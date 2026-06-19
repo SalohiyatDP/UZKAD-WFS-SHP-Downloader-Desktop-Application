@@ -1,4 +1,5 @@
 import type {
+  AppConfig,
   DownloadRequest,
   ExportFormat,
   JobProgress,
@@ -43,6 +44,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const Api = {
   health: () => api<{ status: string }>("/api/health"),
+  config: () => api<AppConfig>("/api/config"),
   session: () => api<SessionStatus>("/api/session"),
   regions: () => api<{ regions: string[] }>("/api/regions"),
   districts: (region: string, refresh = false, layer?: string) =>
@@ -67,6 +69,11 @@ export const Api = {
     api(`/api/jobs/${jobId}/resume`, { method: "POST" }),
   cancel: (jobId: string) =>
     api(`/api/jobs/${jobId}/cancel`, { method: "POST" }),
+  resumeDownload: (jobId: string) =>
+    api<{ job_id: string; resumed: boolean }>(
+      `/api/download/resume?job_id=${encodeURIComponent(jobId)}`,
+      { method: "POST" }
+    ),
   lastSession: () => api<{ job: LastJob | null }>("/api/last-session"),
   featuresCount: (region?: string, district?: string) => {
     const params = new URLSearchParams();
@@ -91,21 +98,73 @@ export const Api = {
   },
 };
 
-export async function openProgressSocket(
-  jobId: string,
-  onMessage: (p: JobProgress) => void,
-  onClose?: () => void
-): Promise<WebSocket> {
+export async function exportFileUrl(filename: string): Promise<string> {
   const base = await backendUrl();
-  const wsUrl = base.replace(/^http/, "ws") + `/ws/progress/${jobId}`;
-  const ws = new WebSocket(wsUrl);
-  ws.onmessage = (evt) => {
+  return `${base}/api/exports/${encodeURIComponent(filename)}`;
+}
+
+const TERMINAL_STATES = ["completed", "failed", "cancelled"];
+
+/**
+ * Track a job's progress robustly: opens a WebSocket AND runs a REST polling
+ * fallback so the UI keeps updating even if the socket fails to connect or
+ * drops. Returns a cleanup function that stops both and should be called when
+ * the component unmounts or a new job starts.
+ */
+export async function subscribeJob(
+  jobId: string,
+  onProgress: (p: JobProgress) => void,
+  onDone?: (p: JobProgress | null) => void
+): Promise<() => void> {
+  let stopped = false;
+  let latest: JobProgress | null = null;
+  let ws: WebSocket | null = null;
+  let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+  const finish = () => {
+    if (stopped) return;
+    stopped = true;
+    if (pollTimer) clearInterval(pollTimer);
     try {
-      onMessage(JSON.parse(evt.data) as JobProgress);
+      ws?.close();
     } catch {
-      /* ignore malformed */
+      /* ignore */
     }
+    onDone?.(latest);
   };
-  ws.onclose = () => onClose?.();
-  return ws;
+
+  const handle = (p: JobProgress) => {
+    latest = p;
+    onProgress(p);
+    if (TERMINAL_STATES.includes(p.state)) finish();
+  };
+
+  // WebSocket (primary).
+  try {
+    const base = await backendUrl();
+    const wsUrl = base.replace(/^http/, "ws") + `/ws/progress/${jobId}`;
+    ws = new WebSocket(wsUrl);
+    ws.onmessage = (evt) => {
+      try {
+        handle(JSON.parse(evt.data) as JobProgress);
+      } catch {
+        /* ignore malformed */
+      }
+    };
+  } catch {
+    ws = null;
+  }
+
+  // REST polling (fallback / safety net), every 1.5s.
+  pollTimer = setInterval(async () => {
+    if (stopped) return;
+    try {
+      const p = await Api.jobProgress(jobId);
+      handle(p);
+    } catch {
+      /* job may not be registered yet; keep trying */
+    }
+  }, 1500);
+
+  return finish;
 }

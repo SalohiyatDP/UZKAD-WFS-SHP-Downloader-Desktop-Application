@@ -1,19 +1,24 @@
 """Export stored features to ESRI Shapefile (zipped), GeoPackage, GeoJSON,
 KML and (optionally) DXF.
 
-Features are read back from SQLite (WKB geometry, stored in EPSG:3857),
-assembled into a GeoDataFrame, reprojected to the requested export CRS and
-written with pyogrio/fiona via geopandas.
+Features are streamed back from SQLite in batches (WKB geometry, stored in
+EPSG:3857), reprojected to the requested export CRS on the fly and written with
+``fiona`` so memory stays bounded even for very large regions (whole-province
+exports with millions of geometries do not need to fit in RAM at once).
 """
 from __future__ import annotations
 
 import datetime as _dt
 import zipfile
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, Iterator, List, Optional, Tuple
 
-import geopandas as gpd
+import fiona
+from fiona.crs import from_epsg
+from pyproj import Transformer
 from shapely import wkb as shapely_wkb
+from shapely.geometry import mapping
+from shapely.ops import transform as shapely_transform
 
 from . import config
 from .database import FeatureDB
@@ -32,33 +37,41 @@ _ATTR_COLUMNS = [
     "property_kind",
 ]
 
+# fiona schema shared by every driver. UZKAD geometry is MultiPolygon; single
+# Polygons are promoted to MultiPolygon for a uniform schema.
+_SCHEMA = {
+    "geometry": "MultiPolygon",
+    "properties": {
+        "uid": "str",
+        "suid": "str",
+        "cadastral_number": "str",
+        "region": "str",
+        "district": "str",
+        "legal_area": "float",
+        "gis_area": "float",
+        "property_kind": "str",
+    },
+}
 
-def _build_geodataframe(
-    db: FeatureDB,
-    region: Optional[str] = None,
-    district: Optional[str] = None,
-) -> gpd.GeoDataFrame:
-    geometries = []
-    records = []
-    for row in db.iter_features(region=region, district=district):
-        try:
-            geom = shapely_wkb.loads(bytes(row["geometry_wkb"]))
-        except Exception:  # noqa: BLE001
-            continue
-        geometries.append(geom)
-        records.append({col: row.get(col) for col in _ATTR_COLUMNS})
 
-    gdf = gpd.GeoDataFrame(records, geometry=geometries, crs=config.SOURCE_CRS)
-    return gdf
+def _epsg_code(crs: str) -> int:
+    return int(str(crs).upper().replace("EPSG:", "").strip())
 
 
 def _safe_name(region: Optional[str], district: Optional[str]) -> str:
     parts = [p for p in (region, district) if p and p.lower() not in ("hammasi", "all")]
     base = "_".join(parts) if parts else "uzkad_export"
-    # Keep only ascii-friendly filename characters.
     cleaned = "".join(c if c.isalnum() else "_" for c in base)
     ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     return f"{cleaned}_{ts}"
+
+
+def _to_multipolygon(geom):
+    if geom.geom_type == "Polygon":
+        from shapely.geometry import MultiPolygon
+
+        return MultiPolygon([geom])
+    return geom
 
 
 class Exporter:
@@ -67,6 +80,74 @@ class Exporter:
         self.out_dir = Path(out_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
+    # ------------------------------------------------------------------ #
+    def _iter_records(
+        self,
+        region: Optional[str],
+        district: Optional[str],
+        target_crs: str,
+    ) -> Iterator[Dict]:
+        """Yield fiona records, reprojecting geometry from source to target CRS."""
+        transformer = None
+        if target_crs and target_crs.upper() != config.SOURCE_CRS:
+            transformer = Transformer.from_crs(
+                config.SOURCE_CRS, target_crs, always_xy=True
+            )
+        for row in self.db.iter_features(
+            region=region, district=district, batch_size=config.EXPORT_BATCH_SIZE
+        ):
+            try:
+                geom = shapely_wkb.loads(bytes(row["geometry_wkb"]))
+            except Exception:  # noqa: BLE001
+                continue
+            if geom.is_empty:
+                continue
+            if transformer is not None:
+                geom = shapely_transform(transformer.transform, geom)
+            geom = _to_multipolygon(geom)
+            props = {col: row.get(col) for col in _ATTR_COLUMNS}
+            yield {"geometry": mapping(geom), "properties": props}
+
+    def _write_collection(
+        self,
+        path: Path,
+        driver: str,
+        target_crs: str,
+        region: Optional[str],
+        district: Optional[str],
+        layer: Optional[str] = None,
+        geometry_only: bool = False,
+    ) -> int:
+        """Stream records into a fiona collection. Returns number written."""
+        schema = _SCHEMA
+        if geometry_only:
+            schema = {"geometry": "MultiPolygon", "properties": {}}
+
+        open_kwargs = dict(
+            driver=driver,
+            schema=schema,
+            crs=from_epsg(_epsg_code(target_crs)),
+        )
+        if layer:
+            open_kwargs["layer"] = layer
+
+        written = 0
+        batch: List[Dict] = []
+        with fiona.open(str(path), "w", **open_kwargs) as sink:
+            for rec in self._iter_records(region, district, target_crs):
+                if geometry_only:
+                    rec = {"geometry": rec["geometry"], "properties": {}}
+                batch.append(rec)
+                if len(batch) >= config.EXPORT_BATCH_SIZE:
+                    sink.writerecords(batch)
+                    written += len(batch)
+                    batch = []
+            if batch:
+                sink.writerecords(batch)
+                written += len(batch)
+        return written
+
+    # ------------------------------------------------------------------ #
     def export(
         self,
         formats: List[str],
@@ -74,28 +155,24 @@ class Exporter:
         district: Optional[str] = None,
         export_crs: str = config.DEFAULT_EXPORT_CRS,
     ) -> List[str]:
-        gdf = _build_geodataframe(self.db, region, district)
-        if gdf.empty:
+        if self.db.count_features(region=region, district=district) == 0:
             raise ValueError("No features stored to export. Run a download first.")
 
-        if export_crs and export_crs.upper() != config.SOURCE_CRS:
-            gdf = gdf.to_crs(export_crs)
-
+        _enable_optional_drivers()
         base = _safe_name(region, district)
         produced: List[str] = []
-        for fmt in formats:
-            fmt = str(fmt).lower()
+        for fmt in (str(f).lower() for f in formats):
             try:
                 if fmt == "shp":
-                    produced.append(self._export_shp(gdf, base))
+                    produced.append(self._export_shp(base, export_crs, region, district))
                 elif fmt == "gpkg":
-                    produced.append(self._export_gpkg(gdf, base))
+                    produced.append(self._export_gpkg(base, export_crs, region, district))
                 elif fmt == "geojson":
-                    produced.append(self._export_geojson(gdf, base))
+                    produced.append(self._export_geojson(base, region, district))
                 elif fmt == "kml":
-                    produced.append(self._export_kml(gdf, base))
+                    produced.append(self._export_kml(base, region, district))
                 elif fmt == "dxf":
-                    produced.append(self._export_dxf(gdf, base))
+                    produced.append(self._export_dxf(base, export_crs, region, district))
                 else:
                     log.warning("Unknown export format ignored: %s", fmt)
             except Exception:  # noqa: BLE001
@@ -104,52 +181,53 @@ class Exporter:
         return produced
 
     # ------------------------------------------------------------------ #
-    def _export_shp(self, gdf: gpd.GeoDataFrame, base: str) -> str:
+    def _export_shp(self, base, crs, region, district) -> str:
         shp_dir = self.out_dir / f"{base}_shp"
         shp_dir.mkdir(parents=True, exist_ok=True)
         shp_path = shp_dir / f"{base}.shp"
-        # DBF column names are limited to 10 chars; geopandas/pyogrio handle this.
-        gdf.to_file(shp_path, driver="ESRI Shapefile", encoding="utf-8")
-
+        n = self._write_collection(
+            shp_path, "ESRI Shapefile", crs, region, district
+        )
         zip_path = self.out_dir / f"{base}_shp.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for part in shp_dir.iterdir():
                 zf.write(part, arcname=part.name)
-        log.info("SHP exported: %s", zip_path)
+        log.info("SHP exported (%s features): %s", n, zip_path)
         return str(zip_path)
 
-    def _export_gpkg(self, gdf: gpd.GeoDataFrame, base: str) -> str:
+    def _export_gpkg(self, base, crs, region, district) -> str:
         path = self.out_dir / f"{base}.gpkg"
-        gdf.to_file(path, driver="GPKG", layer=base)
-        log.info("GPKG exported: %s", path)
+        n = self._write_collection(path, "GPKG", crs, region, district, layer=base)
+        log.info("GPKG exported (%s features): %s", n, path)
         return str(path)
 
-    def _export_geojson(self, gdf: gpd.GeoDataFrame, base: str) -> str:
+    def _export_geojson(self, base, region, district) -> str:
         path = self.out_dir / f"{base}.geojson"
         # GeoJSON is conventionally WGS84.
-        out = gdf.to_crs("EPSG:4326") if str(gdf.crs).upper() != "EPSG:4326" else gdf
-        out.to_file(path, driver="GeoJSON")
-        log.info("GeoJSON exported: %s", path)
+        n = self._write_collection(path, "GeoJSON", "EPSG:4326", region, district)
+        log.info("GeoJSON exported (%s features): %s", n, path)
         return str(path)
 
-    def _export_kml(self, gdf: gpd.GeoDataFrame, base: str) -> str:
+    def _export_kml(self, base, region, district) -> str:
         path = self.out_dir / f"{base}.kml"
-        out = gdf.to_crs("EPSG:4326") if str(gdf.crs).upper() != "EPSG:4326" else gdf
-        try:
-            out.to_file(path, driver="KML")
-        except Exception:
-            # Some GDAL builds need the LIBKML/KML driver enabled explicitly.
-            import fiona
-            fiona.supported_drivers["KML"] = "rw"
-            out.to_file(path, driver="KML")
-        log.info("KML exported: %s", path)
+        n = self._write_collection(path, "KML", "EPSG:4326", region, district)
+        log.info("KML exported (%s features): %s", n, path)
         return str(path)
 
-    def _export_dxf(self, gdf: gpd.GeoDataFrame, base: str) -> str:
+    def _export_dxf(self, base, crs, region, district) -> str:
         path = self.out_dir / f"{base}.dxf"
-        import fiona
-        fiona.supported_drivers["DXF"] = "rw"
         # DXF carries geometry only (no attributes).
-        gdf[["geometry"]].to_file(path, driver="DXF")
-        log.info("DXF exported: %s", path)
+        n = self._write_collection(
+            path, "DXF", crs, region, district, geometry_only=True
+        )
+        log.info("DXF exported (%s features): %s", n, path)
         return str(path)
+
+
+def _enable_optional_drivers() -> None:
+    """Ensure KML/DXF write support is enabled where the GDAL build allows."""
+    for drv in ("KML", "LIBKML", "DXF"):
+        try:
+            fiona.supported_drivers[drv] = "rw"
+        except Exception:  # noqa: BLE001
+            pass

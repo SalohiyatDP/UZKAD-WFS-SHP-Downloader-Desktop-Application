@@ -8,7 +8,7 @@ collecting a whole region.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from pyproj import Transformer
 
@@ -70,10 +70,47 @@ def generate_grid(
 
 
 def grid_for_region_bbox_4326(
-    bbox_4326: Tuple[float, float, float, float], cell_size_m: float
+    bbox_4326: Tuple[float, float, float, float],
+    cell_size_m: float,
+    padding_deg: float = 0.0,
+    clamp_to: Optional[Tuple[float, float, float, float]] = None,
 ) -> List[GridCell]:
-    """Convenience: convert a 4326 region bbox then build the 3857 grid."""
-    return generate_grid(bbox_4326_to_3857(bbox_4326), cell_size_m)
+    """Convert a 4326 region bbox (optionally padded/clamped) then build the grid.
+
+    ``padding_deg`` expands the region box so approximate extents never clip
+    edge features. ``clamp_to`` (e.g. the layer's full WGS84 extent) bounds the
+    padded box so we never grid empty ocean far outside the data.
+    """
+    bbox = pad_bbox_4326(bbox_4326, padding_deg)
+    if clamp_to:
+        bbox = _intersect_bbox(bbox, clamp_to) or bbox
+    return generate_grid(bbox_4326_to_3857(bbox), cell_size_m)
+
+
+def pad_bbox_4326(
+    bbox_4326: Tuple[float, float, float, float], padding_deg: float
+) -> Tuple[float, float, float, float]:
+    if padding_deg <= 0:
+        return bbox_4326
+    min_lon, min_lat, max_lon, max_lat = bbox_4326
+    return (
+        min_lon - padding_deg,
+        min_lat - padding_deg,
+        max_lon + padding_deg,
+        max_lat + padding_deg,
+    )
+
+
+def _intersect_bbox(
+    a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]
+) -> Optional[Tuple[float, float, float, float]]:
+    min_lon = max(a[0], b[0])
+    min_lat = max(a[1], b[1])
+    max_lon = min(a[2], b[2])
+    max_lat = min(a[3], b[3])
+    if max_lon <= min_lon or max_lat <= min_lat:
+        return None
+    return (min_lon, min_lat, max_lon, max_lat)
 
 
 def estimate_cell_count(

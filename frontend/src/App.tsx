@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Api, openProgressSocket } from "./api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Api, exportFileUrl, subscribeJob } from "./api";
 import { SessionBadge } from "./components/SessionBadge";
 import { ProgressPanel } from "./components/ProgressPanel";
 import type {
+  AppConfig,
   ExportFormat,
   JobProgress,
+  LastJob,
   Layer,
   SessionStatus,
 } from "./types";
@@ -15,6 +17,7 @@ const ALL_DISTRICTS = "Hammasi";
 
 export default function App() {
   const [session, setSession] = useState<SessionStatus | null>(null);
+  const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [regions, setRegions] = useState<string[]>([]);
   const [districts, setDistricts] = useState<string[]>([]);
   const [layers, setLayers] = useState<Layer[]>([]);
@@ -32,6 +35,10 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<string[] | null>(null);
+  const [resumable, setResumable] = useState<LastJob | null>(null);
+
+  // Holds the cleanup fn for the active job subscription.
+  const unsubscribeRef = useRef<(() => void) | null>(null);
 
   // ---- Initial load -------------------------------------------------- //
   const refreshSession = useCallback(async () => {
@@ -50,16 +57,35 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [r, l] = await Promise.all([Api.regions(), Api.layers()]);
+        const [r, l, cfg] = await Promise.all([
+          Api.regions(),
+          Api.layers(),
+          Api.config().catch(() => null),
+        ]);
         setRegions(r.regions);
         setLayers(l.layers);
+        if (cfg) setAppConfig(cfg);
         if (l.layers[0]) setLayer(l.layers[0].name);
         if (r.regions[0]) setRegion(r.regions[0]);
       } catch (e) {
         setError(`Backendga ulanib bo‘lmadi: ${e}`);
       }
       refreshSession();
+      // Offer to resume an unfinished previous session.
+      try {
+        const { job } = await Api.lastSession();
+        if (
+          job &&
+          job.state !== "completed" &&
+          job.completed_cells < job.total_cells
+        ) {
+          setResumable(job);
+        }
+      } catch {
+        /* ignore */
+      }
     })();
+    return () => unsubscribeRef.current?.();
   }, [refreshSession]);
 
   // ---- Districts depend on region ------------------------------------ //
@@ -70,7 +96,7 @@ export default function App() {
         const d = await Api.districts(region);
         setDistricts(d.districts);
         setDistrict(ALL_DISTRICTS);
-      } catch (e) {
+      } catch {
         setDistricts([]);
       }
     })();
@@ -100,14 +126,34 @@ export default function App() {
   };
 
   const canStart = useMemo(
-    () => !!region && !!layer && !busy && progress?.state !== "running",
-    [region, layer, busy, progress]
+    () =>
+      !!region && !!layer && formats.length > 0 && !busy &&
+      progress?.state !== "running",
+    [region, layer, formats, busy, progress]
   );
 
-  // ---- Start download ------------------------------------------------ //
+  // ---- Progress subscription helper ---------------------------------- //
+  const track = useCallback((id: string) => {
+    unsubscribeRef.current?.();
+    setProgress(null);
+    setExportResult(null);
+    subscribeJob(
+      id,
+      (p) => setProgress(p),
+      (final) => {
+        setBusy(false);
+        if (final?.export_files?.length) setExportResult(final.export_files);
+      }
+    ).then((unsub) => {
+      unsubscribeRef.current = unsub;
+    });
+  }, []);
+
+  // ---- Start download (collects + auto-exports to file) -------------- //
   const startDownload = async () => {
     setError(null);
     setExportResult(null);
+    setResumable(null);
     setBusy(true);
     try {
       const { job_id } = await Api.startDownload({
@@ -118,21 +164,32 @@ export default function App() {
         formats,
         max_workers: maxWorkers,
         export_crs: "EPSG:4326",
+        auto_export: true,
       });
       setJobId(job_id);
-      const ws = await openProgressSocket(
-        job_id,
-        (p) => setProgress(p),
-        () => setBusy(false)
-      );
-      // Safety: also poll once on socket open failure.
-      void ws;
+      track(job_id);
     } catch (e) {
       setError(String(e));
       setBusy(false);
     }
   };
 
+  const doResume = async () => {
+    if (!resumable) return;
+    setError(null);
+    setBusy(true);
+    setResumable(null);
+    try {
+      const { job_id } = await Api.resumeDownload(resumable.job_id);
+      setJobId(job_id);
+      track(job_id);
+    } catch (e) {
+      setError(String(e));
+      setBusy(false);
+    }
+  };
+
+  // Manual re-export of already-collected data (e.g. to a different format).
   const doExport = async () => {
     setError(null);
     try {
@@ -144,6 +201,18 @@ export default function App() {
       setExportResult(res.files);
     } catch (e) {
       setError(String(e));
+    }
+  };
+
+  const openFile = async (filename: string) => {
+    const url = await exportFileUrl(filename);
+    if (window.uzkad?.openExternal) window.uzkad.openExternal(url);
+    else window.open(url, "_blank");
+  };
+
+  const openFolder = async () => {
+    if (appConfig?.exports_dir && window.uzkad?.openPath) {
+      await window.uzkad.openPath(appConfig.exports_dir);
     }
   };
 
@@ -162,6 +231,20 @@ export default function App() {
       </header>
 
       {error && <div className="alert error">{error}</div>}
+
+      {resumable && (
+        <div className="alert info">
+          Tugallanmagan sessiya topildi: <strong>{resumable.region}</strong>
+          {resumable.district ? ` / ${resumable.district}` : ""} (
+          {resumable.completed_cells}/{resumable.total_cells} katak).{" "}
+          <button className="link-btn" onClick={doResume}>
+            Davom ettirish
+          </button>{" "}
+          <button className="link-btn" onClick={() => setResumable(null)}>
+            Yopish
+          </button>
+        </div>
+      )}
 
       <main className="layout">
         <section className="form-card">
@@ -241,7 +324,14 @@ export default function App() {
 
           {estimate != null && (
             <p className="hint">
-              Taxminiy kataklar soni: <strong>{estimate.toLocaleString()}</strong>
+              Taxminiy kataklar soni:{" "}
+              <strong>{estimate.toLocaleString()}</strong>
+              {estimate > 5000 && (
+                <span className="warn-text">
+                  {" "}
+                  — katta hudud, yuklash uzoq davom etishi mumkin.
+                </span>
+              )}
             </p>
           )}
 
@@ -251,11 +341,11 @@ export default function App() {
               onClick={startDownload}
               disabled={!canStart}
             >
-              {busy ? "Yuklanmoqda..." : "EXPORT (yig‘ish)"}
+              {busy ? "Yuklanmoqda..." : "EXPORT"}
             </button>
             {downloadFinished && (
               <button className="btn secondary" onClick={doExport}>
-                Faylga eksport
+                Qayta eksport
               </button>
             )}
           </div>
@@ -265,10 +355,18 @@ export default function App() {
               <strong>Eksport tayyor:</strong>
               <ul>
                 {exportResult.map((f) => (
-                  <li key={f}>{f}</li>
+                  <li key={f}>
+                    <button className="link-btn" onClick={() => openFile(f)}>
+                      {f}
+                    </button>
+                  </li>
                 ))}
               </ul>
-              <small>Fayllar “exports/” papkasida.</small>
+              {appConfig?.exports_dir && window.uzkad?.openPath && (
+                <button className="btn secondary small" onClick={openFolder}>
+                  Papkani ochish
+                </button>
+              )}
             </div>
           )}
         </section>

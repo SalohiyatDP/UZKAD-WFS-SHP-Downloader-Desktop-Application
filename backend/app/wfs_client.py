@@ -7,6 +7,7 @@ discovery used to dynamically populate region/district/layer dropdowns.
 from __future__ import annotations
 
 import time
+import re
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import requests
@@ -94,8 +95,10 @@ class WFSClient:
         page limit are still fully retrieved.
         """
         xmin, ymin, xmax, ymax = bbox
-        # WFS 2.0.0 expects BBOX as minx,miny,maxx,maxy,SRS for EPSG:3857.
-        bbox_param = f"{xmin},{ymin},{xmax},{ymax},{srs}"
+        # WFS 2.0.0 expects BBOX as minx,miny,maxx,maxy,SRS. The SRS token is
+        # configurable (config.WFS_BBOX_SRS) for GeoServer deployments that
+        # require the URN form.
+        bbox_param = f"{xmin},{ymin},{xmax},{ymax},{config.WFS_BBOX_SRS}"
 
         features: List[Dict[str, Any]] = []
         start_index = 0
@@ -155,15 +158,52 @@ class WFSClient:
             return None
         # GeoServer returns numberMatched / numberOfFeatures in XML for hits.
         text = resp.text
-        for token in ("numberMatched=", "numberOfFeatures="):
-            idx = text.find(token)
-            if idx != -1:
-                start = idx + len(token) + 1
-                end = text.find('"', start)
+        for token in ("numberMatched", "numberOfFeatures"):
+            match = re.search(rf'{token}\s*=\s*"(\d+)"', text)
+            if match:
                 try:
-                    return int(text[start:end])
+                    return int(match.group(1))
                 except ValueError:
                     continue
+        return None
+
+    # ------------------------------------------------------------------ #
+    # Full layer extent (WGS84) from GetCapabilities
+    # ------------------------------------------------------------------ #
+    def get_layer_extent_4326(
+        self, layer: str
+    ) -> Optional[Tuple[float, float, float, float]]:
+        """Return the layer's full extent ``(min_lon, min_lat, max_lon, max_lat)``.
+
+        Parsed from the ``ows:WGS84BoundingBox`` of the matching FeatureType in
+        the WFS GetCapabilities document. Used to validate / fall back the
+        per-region bounding boxes so the grid never under-covers the data.
+        """
+        params = {
+            "service": "WFS",
+            "version": config.WFS_VERSION,
+            "request": "GetCapabilities",
+        }
+        try:
+            resp = self._request(params)
+        except WFSError:
+            return None
+        text = resp.text
+        # Find the FeatureType block for this layer name (with or without prefix).
+        local = layer.split(":")[-1]
+        # Split into FeatureType chunks and locate the right one.
+        chunks = re.split(r"<(?:wfs:)?FeatureType\b", text)
+        for chunk in chunks:
+            if f">{layer}<" in chunk or f">{local}<" in chunk:
+                m = re.search(
+                    r"WGS84BoundingBox.*?LowerCorner>\s*([\-\d.]+)\s+([\-\d.]+)"
+                    r".*?UpperCorner>\s*([\-\d.]+)\s+([\-\d.]+)",
+                    chunk,
+                    re.DOTALL,
+                )
+                if m:
+                    min_lon, min_lat, max_lon, max_lat = (float(g) for g in m.groups())
+                    return (min_lon, min_lat, max_lon, max_lat)
         return None
 
     # ------------------------------------------------------------------ #

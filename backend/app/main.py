@@ -45,6 +45,18 @@ def health() -> dict:
     return {"status": "ok", "version": app.version}
 
 
+@app.get("/api/config")
+def app_config() -> dict:
+    """Expose filesystem locations so the UI can open the exports folder."""
+    return {
+        "version": app.version,
+        "exports_dir": str(config.EXPORTS_DIR),
+        "storage_dir": str(config.STORAGE_DIR),
+        "logs_dir": str(config.LOGS_DIR),
+        "wfs_url": config.WFS_URL,
+    }
+
+
 @app.get("/api/session")
 def session_status() -> dict:
     return get_session_status()
@@ -105,6 +117,9 @@ def start_download(req: DownloadRequest) -> dict:
         district=req.district,
         grid_size=req.grid_size,
         max_workers=req.max_workers,
+        formats=[f.value for f in req.formats],
+        export_crs=req.export_crs,
+        auto_export=req.auto_export,
     )
     return {"job_id": job_id, "state": "running"}
 
@@ -122,6 +137,8 @@ def resume_download(job_id: str) -> dict:
         max_workers=config.DEFAULT_MAX_WORKERS,
         resume=True,
         job_id=job_id,
+        formats=["shp"],
+        auto_export=True,
     )
     return {"job_id": new_id, "state": "running", "resumed": True}
 

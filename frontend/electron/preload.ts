@@ -7,4 +7,6 @@ contextBridge.exposeInMainWorld("uzkad", {
   getBackendUrl: (): Promise<string> => ipcRenderer.invoke("get-backend-url"),
   openExternal: (url: string): Promise<void> =>
     ipcRenderer.invoke("open-external", url),
+  openPath: (target: string): Promise<string> =>
+    ipcRenderer.invoke("open-path", target),
 });

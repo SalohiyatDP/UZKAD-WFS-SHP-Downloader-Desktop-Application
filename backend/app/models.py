@@ -36,6 +36,9 @@ class DownloadRequest(BaseModel):
     formats: List[ExportFormat] = Field(default_factory=lambda: [ExportFormat.shp])
     max_workers: int = Field(DEFAULT_MAX_WORKERS, ge=1, le=16)
     export_crs: str = Field("EPSG:4326", description="CRS for exported files")
+    auto_export: bool = Field(
+        True, description="Export to files automatically when the download finishes"
+    )
 
 
 class JobProgress(BaseModel):

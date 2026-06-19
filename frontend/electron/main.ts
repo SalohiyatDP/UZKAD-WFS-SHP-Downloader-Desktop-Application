@@ -2,14 +2,29 @@ import { app, BrowserWindow, shell, ipcMain } from "electron";
 import { spawn, ChildProcessWithoutNullStreams } from "child_process";
 import * as path from "path";
 import * as http from "http";
+import * as net from "net";
 
 const BACKEND_HOST = "127.0.0.1";
-const BACKEND_PORT = 8000;
-const BACKEND_URL = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
 const isDev = !app.isPackaged;
 
+let backendPort = 8000;
+let backendUrl = `http://${BACKEND_HOST}:${backendPort}`;
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcessWithoutNullStreams | null = null;
+
+/** Find a free TCP port so the app works even if 8000 is taken. */
+function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.on("error", reject);
+    srv.listen(0, BACKEND_HOST, () => {
+      const addr = srv.address();
+      const port = typeof addr === "object" && addr ? addr.port : 8000;
+      srv.close(() => resolve(port));
+    });
+  });
+}
 
 /** Resolve the backend directory in both dev and packaged builds. */
 function backendDir(): string {
@@ -29,11 +44,11 @@ function pythonExecutable(): string {
 function startBackend(): void {
   const cwd = backendDir();
   const py = pythonExecutable();
-  console.log(`[backend] starting: ${py} -m app.main (cwd=${cwd})`);
+  console.log(`[backend] starting: ${py} -m app.main --port ${backendPort} (cwd=${cwd})`);
 
   backendProcess = spawn(
     py,
-    ["-m", "app.main", "--host", BACKEND_HOST, "--port", String(BACKEND_PORT)],
+    ["-m", "app.main", "--host", BACKEND_HOST, "--port", String(backendPort)],
     { cwd, env: { ...process.env, PYTHONUNBUFFERED: "1" } }
   );
 
@@ -48,7 +63,7 @@ function startBackend(): void {
 function waitForBackend(retries = 60): Promise<boolean> {
   return new Promise((resolve) => {
     const attempt = (n: number) => {
-      const req = http.get(`${BACKEND_URL}/api/health`, (res) => {
+      const req = http.get(`${backendUrl}/api/health`, (res) => {
         res.resume();
         if (res.statusCode === 200) return resolve(true);
         retry(n);
@@ -96,10 +111,17 @@ async function createWindow(): Promise<void> {
   }
 }
 
-ipcMain.handle("get-backend-url", () => BACKEND_URL);
+ipcMain.handle("get-backend-url", () => backendUrl);
 ipcMain.handle("open-external", (_evt, url: string) => shell.openExternal(url));
+ipcMain.handle("open-path", (_evt, target: string) => shell.openPath(target));
 
 app.whenReady().then(async () => {
+  try {
+    backendPort = await findFreePort();
+  } catch {
+    backendPort = 8000;
+  }
+  backendUrl = `http://${BACKEND_HOST}:${backendPort}`;
   startBackend();
   const ready = await waitForBackend();
   if (!ready) {

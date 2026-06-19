@@ -198,9 +198,26 @@ select {
   background: rgba(22, 163, 74, 0.15);
   border: 1px solid var(--green);
 }
+.alert.info {
+  background: rgba(37, 99, 235, 0.15);
+  border: 1px solid var(--primary);
+}
 .alert ul {
   margin: 6px 0;
   padding-left: 18px;
+}
+.alert li button.link-btn {
+  padding: 2px 0;
+  text-align: left;
+  text-decoration: underline;
+}
+.warn-text {
+  color: var(--amber);
+}
+.btn.small {
+  padding: 7px 12px;
+  font-size: 13px;
+  margin-top: 6px;
 }
 
 /* Progress */

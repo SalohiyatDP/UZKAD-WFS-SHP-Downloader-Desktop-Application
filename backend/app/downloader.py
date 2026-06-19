@@ -20,6 +20,7 @@ from shapely import wkb as shapely_wkb
 
 from . import config
 from .database import FeatureDB, make_dedup_key
+from .exporter import Exporter
 from .grid_generator import GridCell, grid_for_region_bbox_4326
 from .logging_setup import get_logger
 from .regions import get_region
@@ -137,14 +138,29 @@ class GridDownloader:
         grid_size: int,
         max_workers: int = config.DEFAULT_MAX_WORKERS,
         resume: bool = False,
+        formats: Optional[List[str]] = None,
+        export_crs: str = config.DEFAULT_EXPORT_CRS,
+        auto_export: bool = True,
     ) -> DownloadStats:
         region_info = get_region(region)
         if not region_info:
             raise ValueError(f"Unknown region: {region}")
 
         cql = build_region_filter(region, district)
+
+        # Validate / extend the (approximate) region bbox against the layer's
+        # true WGS84 extent so the grid never under-covers the data.
+        clamp_to = None
+        try:
+            clamp_to = self.client.get_layer_extent_4326(layer)
+        except Exception:  # noqa: BLE001
+            clamp_to = None
+
         cells = grid_for_region_bbox_4326(
-            tuple(region_info["bbox_4326"]), float(grid_size)
+            tuple(region_info["bbox_4326"]),
+            float(grid_size),
+            padding_deg=config.REGION_BBOX_PADDING_DEG,
+            clamp_to=clamp_to,
         )
         self.stats.total_cells = len(cells)
         self.stats.started_at = time.time()
@@ -191,15 +207,49 @@ class GridDownloader:
         if self._cancel.is_set():
             self.stats.state = "cancelled"
             self.stats.message = "Download cancelled"
-        else:
-            self.stats.state = "completed"
-            self.stats.message = (
-                f"Done: {self.stats.features_stored} unique features "
-                f"({self.stats.duplicates_removed} duplicates removed)"
-            )
+            self.db.save_job(self._job_row(layer, region, district, grid_size))
+            self._emit()
+            return self.stats
+
+        # Download finished successfully. Optionally export to files while the
+        # job is still reported as "running" so the WebSocket delivers the final
+        # progress (with export_files) before terminating.
+        if auto_export and formats:
+            self._run_export(formats, region, district, export_crs)
+
+        self.stats.state = "completed"
+        self.stats.message = (
+            f"Done: {self.stats.features_stored} unique features "
+            f"({self.stats.duplicates_removed} duplicates removed)"
+        )
         self.db.save_job(self._job_row(layer, region, district, grid_size))
         self._emit()
         return self.stats
+
+    # ------------------------------------------------------------------ #
+    def _run_export(
+        self,
+        formats: List[str],
+        region: str,
+        district: Optional[str],
+        export_crs: str,
+    ) -> None:
+        try:
+            self.stats.message = "Eksport qilinmoqda (faylga yozilmoqda)..."
+            self._emit()
+            exporter = Exporter(self.db)
+            files = exporter.export(
+                formats=formats,
+                region=region,
+                district=district if district and district.lower() not in
+                ("hammasi", "all") else None,
+                export_crs=export_crs,
+            )
+            self.stats.export_files = files
+            log.info("Auto-export produced %s file(s)", len(files))
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Auto-export failed")
+            self.stats.message = f"Yuklash tugadi, ammo eksportda xato: {exc}"
 
     # ------------------------------------------------------------------ #
     def _wait_if_paused(self) -> None:
