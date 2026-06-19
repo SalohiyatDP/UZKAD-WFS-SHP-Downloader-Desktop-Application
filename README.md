@@ -201,6 +201,8 @@ WFS layers, default attributes, grid sizes, paging and worker limits are in
 | POST | `/api/jobs/{job_id}/pause\|resume\|cancel` | Control a job |
 | GET | `/api/last-session` | Last saved job (for resume) |
 | POST | `/api/export` | Export stored features to file(s) |
+| GET | `/api/collector` | Generate the browser collector bookmarklet/script |
+| POST | `/api/import` | Ingest a GeoJSON FeatureCollection collected in the browser |
 | GET | `/api/features/count` | Stored feature count |
 | GET | `/api/exports/{filename}` | Download an exported file |
 | WS | `/ws/progress/{job_id}` | Live progress stream |
@@ -217,6 +219,28 @@ cd backend
 source .venv/bin/activate
 python -m tests.test_pipeline
 ```
+
+---
+
+## Browser collector (bookmarklet) — recommended when WFS returns 403
+
+The WFS at `mulk.kadastr.uz` rejects externally-supplied credentials (HTTP 403).
+The most reliable path is to harvest from the **already-authenticated map page**:
+
+1. In the app (panel **"2. Brauzer orqali yig‘ish"**) pick region/district/grid
+   and click **"Yig‘ish skriptini tayyorlash"**.
+2. Drag the generated **"⬇ UZKAD yig‘ish"** link to your bookmarks bar, or copy
+   the console script.
+3. Open the UZKAD **map** page (signed in). Click the bookmark, or paste the
+   script into **DevTools → Console** and press Enter.
+4. The script grids the region, fetches WFS **same-origin** (so your real
+   session cookies/token are used automatically), de-duplicates, and downloads a
+   **`.geojson`** file.
+5. Back in the app, **import that file**; it is stored + de-duplicated, then
+   exported to SHP / GPKG / GeoJSON / KML.
+
+This avoids backend authentication entirely and sidesteps CORS / mixed-content
+restrictions (the page only does same-origin fetches and a local file download).
 
 ---
 

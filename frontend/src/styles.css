@@ -453,3 +453,37 @@ select {
   border-top: 1px dashed var(--border);
   margin: 6px 0;
 }
+
+
+/* Collector (bookmarklet) panel */
+.collector-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  margin-top: 18px;
+}
+.collector-panel h3 {
+  margin: 0 0 4px;
+}
+.collector-out {
+  margin-top: 12px;
+}
+.bookmarklet-link {
+  display: inline-block;
+  background: var(--primary);
+  color: #fff;
+  text-decoration: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: grab;
+  width: fit-content;
+}
+.bookmarklet-link:hover {
+  background: var(--primary-h);
+}
+.collector-panel input[type="file"] {
+  color: var(--muted);
+  font-size: 13px;
+}

@@ -19,6 +19,8 @@ from .exporter import Exporter
 from .job_manager import JobManager
 from .logging_setup import get_logger
 from .models import DownloadRequest, ExportFormat, SetSessionRequest
+from .collector import build_bookmarklet, build_config, build_script
+from .downloader import GridDownloader
 from .session import (
     clear_session,
     get_active_cookies,
@@ -176,6 +178,62 @@ def estimate(region: str, grid_size: int = config.DEFAULT_GRID_SIZE) -> dict:
         raise HTTPException(status_code=404, detail=f"Unknown region: {region}")
     cells = estimate_cell_count(tuple(region_info["bbox_4326"]), float(grid_size))
     return {"region": region, "grid_size": grid_size, "estimated_cells": cells}
+
+
+# --------------------------------------------------------------------------- #
+# Browser collector (bookmarklet) + GeoJSON import
+# --------------------------------------------------------------------------- #
+@app.get("/api/collector")
+def collector(
+    region: str,
+    district: Optional[str] = None,
+    grid_size: int = config.DEFAULT_GRID_SIZE,
+    layer: Optional[str] = None,
+) -> dict:
+    region_info = regions_data.get_region(region)
+    if not region_info:
+        raise HTTPException(status_code=404, detail=f"Unknown region: {region}")
+    target_layer = layer or config.LAYERS[0]["name"]
+    cql = build_region_filter(region, district)
+    safe = "".join(c if c.isalnum() else "_" for c in (district or region))
+    filename = f"uzkad_{safe}.geojson"
+    cfg = build_config(
+        region=region,
+        bbox_4326=list(region_info["bbox_4326"]),
+        cql_filter=cql,
+        layer=target_layer,
+        grid_size=grid_size,
+        filename=filename,
+    )
+    script = build_script(cfg)
+    return {
+        "script": script,
+        "bookmarklet": build_bookmarklet(script),
+        "filename": filename,
+        "estimated_cells": estimate_cell_count(
+            tuple(region_info["bbox_4326"]), float(grid_size)
+        ),
+    }
+
+
+@app.post("/api/import")
+def import_features(payload: dict) -> dict:
+    """Ingest a GeoJSON FeatureCollection (collected in the browser) into the DB.
+
+    Body: {"region"?: str, "district"?: str, "features": [...]} or a raw
+    GeoJSON FeatureCollection ({"type":"FeatureCollection","features":[...]}).
+    """
+    features = payload.get("features")
+    if not isinstance(features, list) or not features:
+        raise HTTPException(status_code=400, detail="No features provided")
+    rows = GridDownloader._features_to_rows(features)
+    stored = _db.upsert_features(rows) if rows else 0
+    return {
+        "found": len(features),
+        "valid": len(rows),
+        "stored_new": stored,
+        "total_in_db": _db.count_features(),
+    }
 
 
 # --------------------------------------------------------------------------- #

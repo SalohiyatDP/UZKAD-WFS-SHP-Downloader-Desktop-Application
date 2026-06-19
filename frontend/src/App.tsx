@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Api, exportFileUrl, subscribeJob } from "./api";
 import { SessionBadge } from "./components/SessionBadge";
 import { LoginPanel } from "./components/LoginPanel";
+import { CollectorPanel } from "./components/CollectorPanel";
 import { ProgressPanel } from "./components/ProgressPanel";
 import type {
   AppConfig,
@@ -381,6 +382,14 @@ export default function App() {
           onCancel={cancel}
         />
       </main>
+
+      <CollectorPanel
+        region={region}
+        district={district === ALL_DISTRICTS ? null : district}
+        gridSize={gridSize}
+        layer={layer}
+        formats={formats}
+      />
     </div>
   );
 }

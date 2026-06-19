@@ -77,6 +77,32 @@ export const Api = {
     api<{ estimated_cells: number }>(
       `/api/estimate?region=${encodeURIComponent(region)}&grid_size=${gridSize}`
     ),
+  collector: (
+    region: string,
+    district: string | undefined,
+    gridSize: number,
+    layer?: string
+  ) => {
+    const p = new URLSearchParams({ region, grid_size: String(gridSize) });
+    if (district) p.set("district", district);
+    if (layer) p.set("layer", layer);
+    return api<{
+      script: string;
+      bookmarklet: string;
+      filename: string;
+      estimated_cells: number;
+    }>(`/api/collector?${p.toString()}`);
+  },
+  importFeatures: (features: unknown[], region?: string, district?: string) =>
+    api<{
+      found: number;
+      valid: number;
+      stored_new: number;
+      total_in_db: number;
+    }>("/api/import", {
+      method: "POST",
+      body: JSON.stringify({ features, region, district }),
+    }),
   startDownload: (req: DownloadRequest) =>
     api<{ job_id: string; state: string }>("/api/download", {
       method: "POST",
