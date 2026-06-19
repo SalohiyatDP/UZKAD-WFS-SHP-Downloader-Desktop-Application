@@ -446,3 +446,10 @@ select {
   flex-wrap: wrap;
   margin-top: 4px;
 }
+
+
+.manual-sep {
+  border: none;
+  border-top: 1px dashed var(--border);
+  margin: 6px 0;
+}

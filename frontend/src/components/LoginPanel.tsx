@@ -21,6 +21,7 @@ export function LoginPanel({ session, onSessionChange }: Props) {
   const [busy, setBusy] = useState(false);
   const [cookieText, setCookieText] = useState("");
   const [tokenText, setTokenText] = useState("");
+  const [curlText, setCurlText] = useState("");
   const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -91,6 +92,54 @@ export function LoginPanel({ session, onSessionChange }: Props) {
     }
   };
 
+  // Parse a full "Copy as cURL" command and extract cookies + auth headers.
+  const importFromCurl = async () => {
+    setError(null);
+    setInfo(null);
+    const curl = curlText;
+    let cookieStr = "";
+    const authHeaders: Record<string, string> = {};
+    const allow = ["authorization", "x-api-key", "x-auth-token", "x-csrf-token", "x-xsrf-token"];
+
+    const headerRe = /(?:-H|--header)\s+('([^']*)'|"([^"]*)")/g;
+    let m: RegExpExecArray | null;
+    while ((m = headerRe.exec(curl))) {
+      const h = m[2] ?? m[3] ?? "";
+      const idx = h.indexOf(":");
+      if (idx > 0) {
+        const name = h.slice(0, idx).trim();
+        const value = h.slice(idx + 1).trim();
+        if (name.toLowerCase() === "cookie") cookieStr = value;
+        else if (allow.includes(name.toLowerCase())) authHeaders[name] = value;
+      }
+    }
+    const cookieFlag = /(?:-b|--cookie)\s+('([^']*)'|"([^"]*)")/.exec(curl);
+    if (cookieFlag) cookieStr = cookieFlag[2] ?? cookieFlag[3] ?? cookieStr;
+
+    const cookies = parseCookieHeader(cookieStr);
+    if (Object.keys(cookies).length === 0 && Object.keys(authHeaders).length === 0) {
+      setError("cURL ichidan Cookie yoki Authorization topilmadi. To‘liq buyruqni qo‘ying.");
+      return;
+    }
+    // Reflect what was extracted in the fields, then import.
+    setCookieText(cookieStr);
+    if (authHeaders["Authorization"]) setTokenText(authHeaders["Authorization"]);
+    setBusy(true);
+    try {
+      const status = await Api.setSession(cookies, authHeaders, "curl");
+      setInfo(
+        `cURL'dan import: ${status.cookie_count} cookie` +
+          (status.has_token ? " + token" : "") +
+          `. Headerlar: ${Object.keys(authHeaders).join(", ") || "—"}.`
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+      onSessionChange();
+    }
+  };
+
   const runProbe = async () => {
     setProbing(true);
     setProbe(null);
@@ -122,10 +171,34 @@ export function LoginPanel({ session, onSessionChange }: Props) {
       <div className="manual-body">
         <p className="hint">
           Brauzerda <strong>mulk.kadastr.uz</strong> ochiq va login qilingan
-          holda: <strong>F12 → Network</strong> → biror WFS/so‘rovni tanlang →{" "}
-          <strong>Request Headers</strong> dan <code>Cookie:</code> qiymatini (va
-          agar bo‘lsa <code>Authorization</code> tokenini) nusxalab joylashtiring.
+          holda: <strong>F12 → Network</strong> → ma’lumot qaytaradigan (status
+          200) WFS so‘rovini toping → unга <strong>o‘ng tugma → Copy → Copy as
+          cURL</strong> → quyiga joylashtiring:
         </p>
+        <label className="field-label">cURL buyrug‘i (eng oson usul)</label>
+        <textarea
+          className="manual-text"
+          rows={3}
+          spellCheck={false}
+          placeholder="curl 'https://mulk.kadastr.uz/gis/wfs?...' -H 'Cookie: ...' -H 'Authorization: Bearer ...'"
+          value={curlText}
+          onChange={(e) => setCurlText(e.target.value)}
+        />
+        <div className="manual-actions">
+          <button className="btn primary small" onClick={importFromCurl} disabled={busy}>
+            {busy ? "Import qilinmoqda..." : "cURL'dan import qilish"}
+          </button>
+          <button
+            className="btn secondary small"
+            onClick={runProbe}
+            disabled={probing}
+          >
+            {probing ? "Tekshirilmoqda..." : "Ulanishni tekshirish"}
+          </button>
+        </div>
+
+        <hr className="manual-sep" />
+        <p className="hint">Yoki qo‘lda kiriting:</p>
 
         <label className="field-label">Cookie qatori (JSESSIONID=...)</label>
         <textarea
@@ -147,15 +220,8 @@ export function LoginPanel({ session, onSessionChange }: Props) {
         />
 
         <div className="manual-actions">
-          <button className="btn primary small" onClick={importSession} disabled={busy}>
-            {busy ? "Import qilinmoqda..." : "Import qilish"}
-          </button>
-          <button
-            className="btn secondary small"
-            onClick={runProbe}
-            disabled={probing}
-          >
-            {probing ? "Tekshirilmoqda..." : "Ulanishni tekshirish"}
+          <button className="btn secondary small" onClick={importSession} disabled={busy}>
+            {busy ? "Import qilinmoqda..." : "Qo‘lda import qilish"}
           </button>
         </div>
       </div>
