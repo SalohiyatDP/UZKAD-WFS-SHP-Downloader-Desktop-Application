@@ -54,6 +54,12 @@ export function ProgressPanel({ progress, onPause, onResume, onCancel }: Props) 
 
       {progress.message && <p className="progress-message">{progress.message}</p>}
 
+      {progress.failed_cells > 0 && progress.last_error && (
+        <div className="alert error error-small">
+          <strong>Xato namunasi:</strong> {progress.last_error}
+        </div>
+      )}
+
       <div className="progress-actions">
         {running && (
           <button className="btn secondary" onClick={onPause}>

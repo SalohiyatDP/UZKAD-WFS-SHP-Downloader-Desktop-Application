@@ -31,6 +31,10 @@ export function LoginPanel({ session, onSessionChange }: Props) {
   const [cookieText, setCookieText] = useState("");
   const [tokenText, setTokenText] = useState("");
 
+  // Connection diagnostics.
+  const [probing, setProbing] = useState(false);
+  const [probe, setProbe] = useState<Record<string, unknown> | null>(null);
+
   const electron = typeof window !== "undefined" && !!window.uzkad?.openLogin;
   const authed = session?.authenticated ?? false;
 
@@ -100,6 +104,19 @@ export function LoginPanel({ session, onSessionChange }: Props) {
     }
   };
 
+  const runProbe = async () => {
+    setProbing(true);
+    setProbe(null);
+    try {
+      const res = await Api.probe();
+      setProbe(res);
+    } catch (e) {
+      setProbe({ ok: false, error: String(e) });
+    } finally {
+      setProbing(false);
+    }
+  };
+
   // Parse a raw "Cookie:" header value ("a=1; b=2; ...") into {name: value}.
   const parseCookieHeader = (raw: string): Record<string, string> => {
     const out: Record<string, string> = {};
@@ -161,6 +178,40 @@ export function LoginPanel({ session, onSessionChange }: Props) {
           <button className="link-btn" onClick={logout} disabled={busy}>
             Chiqish
           </button>
+        )}
+      </div>
+
+      <div className="probe-row">
+        <button
+          className="btn secondary small"
+          onClick={runProbe}
+          disabled={probing}
+        >
+          {probing ? "Tekshirilmoqda..." : "Ulanishni tekshirish"}
+        </button>
+        {probe && (
+          <div
+            className={`alert ${probe.ok ? "success" : "error"} error-small`}
+          >
+            <div>
+              <strong>Status:</strong> {String(probe.status ?? probe.error ?? "—")}
+              {probe.feature_count !== undefined && (
+                <>
+                  {" · "}
+                  <strong>features:</strong> {String(probe.feature_count)}
+                </>
+              )}
+            </div>
+            {Array.isArray(probe.property_keys) && (
+              <div>
+                <strong>Atributlar:</strong>{" "}
+                {(probe.property_keys as string[]).join(", ")}
+              </div>
+            )}
+            {probe.snippet !== undefined && (
+              <pre className="probe-snippet">{String(probe.snippet)}</pre>
+            )}
+          </div>
         )}
       </div>
 

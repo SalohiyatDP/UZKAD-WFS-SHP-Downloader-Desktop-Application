@@ -66,6 +66,13 @@ export const Api = {
         (layer ? `&layer=${encodeURIComponent(layer)}` : "")
     ),
   layers: () => api<{ layers: Layer[] }>("/api/layers"),
+  probe: (layer?: string, region?: string, district?: string) => {
+    const params = new URLSearchParams();
+    if (layer) params.set("layer", layer);
+    if (region) params.set("region", region);
+    if (district) params.set("district", district);
+    return api<Record<string, unknown>>(`/api/wfs/probe?${params.toString()}`);
+  },
   estimate: (region: string, gridSize: number) =>
     api<{ estimated_cells: number }>(
       `/api/estimate?region=${encodeURIComponent(region)}&grid_size=${gridSize}`

@@ -75,7 +75,7 @@ def set_session(
 ) -> Dict[str, object]:
     """Store cookies/headers captured by the in-app login window."""
     with _LOCK:
-        _SESSION["cookies"] = dict(cookies or {})
+        _SESSION["cookies"] = {k: v for k, v in (cookies or {}).items() if v}
         _SESSION["headers"] = {k: v for k, v in (headers or {}).items() if v}
         _SESSION["source"] = source
         _SESSION["captured_at"] = time.time()

@@ -37,6 +37,7 @@ export interface JobProgress {
   eta_seconds: number | null;
   elapsed_seconds: number;
   message: string;
+  last_error?: string;
   export_files: string[];
 }
 

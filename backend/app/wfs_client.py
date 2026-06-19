@@ -51,6 +51,12 @@ class WFSClient:
             self.session.proxies.update({"http": proxy, "https": proxy})
 
     # ------------------------------------------------------------------ #
+    # Raw single request (diagnostics / probe), no retries, no raising
+    # ------------------------------------------------------------------ #
+    def raw_request(self, params: Dict[str, Any]) -> requests.Response:
+        return self.session.get(self.base_url, params=params, timeout=self.timeout)
+
+    # ------------------------------------------------------------------ #
     # Low level request helper with retry/backoff
     # ------------------------------------------------------------------ #
     def _request(self, params: Dict[str, Any]) -> requests.Response:

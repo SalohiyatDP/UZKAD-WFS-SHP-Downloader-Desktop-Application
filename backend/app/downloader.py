@@ -44,6 +44,7 @@ class DownloadStats:
     started_at: float = 0.0
     elapsed_seconds: float = 0.0
     message: str = ""
+    last_error: str = ""
     export_files: List[str] = field(default_factory=list)
 
     @property
@@ -73,6 +74,7 @@ class DownloadStats:
             "eta_seconds": round(self.eta, 1) if self.eta is not None else None,
             "elapsed_seconds": round(self.elapsed_seconds, 1),
             "message": self.message,
+            "last_error": self.last_error,
             "export_files": self.export_files,
         }
 
@@ -200,6 +202,7 @@ class GridDownloader:
                     with self._lock:
                         self.stats.failed_cells += 1
                         self.stats.completed_cells += 1
+                        self.stats.last_error = str(exc)[:300]
                     self.db.mark_cell(self.job_id, cell.index, "failed")
                     log.warning("Cell %s failed: %s", cell.index, exc)
                 self._emit()

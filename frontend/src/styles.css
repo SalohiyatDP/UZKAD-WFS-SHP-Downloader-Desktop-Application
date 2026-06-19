@@ -416,3 +416,25 @@ select {
   outline: none;
   border-color: var(--primary);
 }
+
+
+/* Diagnostics / probe */
+.probe-row {
+  margin: 10px 0 4px;
+}
+.error-small {
+  font-size: 13px;
+  margin-top: 8px;
+}
+.probe-snippet {
+  margin: 8px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  background: #0b1220;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

@@ -118,6 +118,57 @@ def list_layers() -> dict:
     return {"layers": config.LAYERS}
 
 
+@app.get("/api/wfs/probe")
+def wfs_probe(
+    layer: Optional[str] = None,
+    region: Optional[str] = None,
+    district: Optional[str] = None,
+) -> dict:
+    """Diagnostic: send ONE small GetFeature with the active session and return
+    the raw server response so auth/layer/format problems can be identified."""
+    target_layer = layer or config.LAYERS[0]["name"]
+    client = WFSClient(cookies=get_active_cookies(), headers=get_active_headers())
+    cql = build_region_filter(region, district) if region else None
+    params = {
+        "service": "WFS",
+        "version": config.WFS_VERSION,
+        "request": "GetFeature",
+        "typeNames": target_layer,
+        "outputFormat": config.OUTPUT_FORMAT,
+        "count": 1,
+    }
+    if cql:
+        params["cql_filter"] = cql
+
+    info: dict = {"layer": target_layer, "cql_filter": cql}
+    try:
+        resp = client.raw_request(params)
+    except Exception as exc:  # noqa: BLE001
+        info.update({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+        return info
+
+    text = resp.text or ""
+    info.update(
+        {
+            "ok": resp.status_code == 200,
+            "status": resp.status_code,
+            "content_type": resp.headers.get("Content-Type"),
+            "request_url": str(resp.url),
+            "snippet": text[:900],
+        }
+    )
+    try:
+        data = resp.json()
+        feats = data.get("features", []) or []
+        info["feature_count"] = len(feats)
+        info["numberMatched"] = data.get("numberMatched")
+        if feats:
+            info["property_keys"] = list((feats[0].get("properties") or {}).keys())
+    except ValueError:
+        info["is_json"] = False
+    return info
+
+
 @app.get("/api/estimate")
 def estimate(region: str, grid_size: int = config.DEFAULT_GRID_SIZE) -> dict:
     region_info = regions_data.get_region(region)
