@@ -1,0 +1,49 @@
+{
+  "name": "uzkad-wfs-shp-downloader",
+  "version": "1.0.0",
+  "description": "UZKAD WFS SHP Downloader - Electron desktop frontend",
+  "author": "SalohiyatDP",
+  "license": "MIT",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && tsc -p electron/tsconfig.json",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "electron": "electron .",
+    "start": "npm run build && electron .",
+    "lint": "eslint . --ext .ts,.tsx",
+    "package": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.5.3",
+    "vite": "^5.3.3"
+  },
+  "build": {
+    "appId": "uz.kadastr.uzkad-shp-downloader",
+    "productName": "UZKAD SHP Downloader",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend",
+        "to": "backend",
+        "filter": ["**/*", "!**/__pycache__/**", "!**/*.pyc"]
+      }
+    ]
+  }
+}

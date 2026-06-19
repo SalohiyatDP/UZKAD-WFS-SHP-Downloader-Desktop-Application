@@ -1,0 +1,12 @@
+# UZKAD WFS SHP Downloader - backend dependencies (Python 3.13)
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+requests>=2.32
+geopandas>=1.0
+shapely>=2.0
+pyproj>=3.6
+pyogrio>=0.9
+fiona>=1.9
+pandas>=2.2
+browser_cookie3>=0.19

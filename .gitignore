@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Node / Electron
+node_modules/
+frontend/dist/
+frontend/dist-electron/
+frontend/release/
+
+# App data
+storage/*.sqlite
+storage/*.sqlite-wal
+storage/*.sqlite-shm
+exports/*
+logs/*.log
+
+# Keep folder placeholders
+!storage/.gitkeep
+!exports/.gitkeep
+!logs/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
