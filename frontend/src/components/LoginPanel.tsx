@@ -26,6 +26,11 @@ export function LoginPanel({ session, onSessionChange }: Props) {
   const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Manual import (works in any environment, incl. a plain browser).
+  const [showManual, setShowManual] = useState(false);
+  const [cookieText, setCookieText] = useState("");
+  const [tokenText, setTokenText] = useState("");
+
   const electron = typeof window !== "undefined" && !!window.uzkad?.openLogin;
   const authed = session?.authenticated ?? false;
 
@@ -95,6 +100,59 @@ export function LoginPanel({ session, onSessionChange }: Props) {
     }
   };
 
+  // Parse a raw "Cookie:" header value ("a=1; b=2; ...") into {name: value}.
+  const parseCookieHeader = (raw: string): Record<string, string> => {
+    const out: Record<string, string> = {};
+    raw
+      .replace(/^cookie:\s*/i, "")
+      .split(/;\s*/)
+      .forEach((pair) => {
+        const i = pair.indexOf("=");
+        if (i > 0) {
+          const name = pair.slice(0, i).trim();
+          const value = pair.slice(i + 1).trim();
+          if (name) out[name] = value;
+        }
+      });
+    return out;
+  };
+
+  const manualImport = async () => {
+    setError(null);
+    setInfo(null);
+    const cookies = parseCookieHeader(cookieText);
+    const headers: Record<string, string> = {};
+    const token = tokenText.trim();
+    if (token) {
+      headers["Authorization"] = /^bearer\s+/i.test(token)
+        ? token
+        : `Bearer ${token}`;
+    }
+    if (Object.keys(cookies).length === 0 && !token) {
+      setError("Hech bo‘lmasa Cookie qatori yoki token kiriting.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const status = await Api.setSession(cookies, headers, "manual");
+      if (status.authenticated) {
+        setInfo(
+          `Sessiya import qilindi: ${status.cookie_count} cookie` +
+            (status.has_token ? " + token" : "") + "."
+        );
+        setCookieText("");
+        setTokenText("");
+      } else {
+        setError("Import bo‘ldi, lekin sessiya bo‘sh ko‘rinmoqda.");
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+      onSessionChange();
+    }
+  };
+
   return (
     <section className="login-panel">
       <div className="login-head">
@@ -147,10 +205,57 @@ export function LoginPanel({ session, onSessionChange }: Props) {
           </p>
           {!electron && (
             <p className="hint warn-text">
-              Eslatma: portal oynasi va import faqat desktop (Electron) ilovasida
-              to‘liq ishlaydi.
+              Eslatma: portal oynasi va avtomatik import faqat desktop (Electron)
+              ilovasida ishlaydi. Brauzerda esa quyidagi <strong>qo‘lda import</strong>
+              dan foydalaning.
             </p>
           )}
+
+          <div className="manual-box">
+            <button
+              type="button"
+              className="link-btn"
+              onClick={() => setShowManual((v) => !v)}
+            >
+              {showManual ? "▾" : "▸"} Qo‘lda import (Cookie / token)
+            </button>
+            {showManual && (
+              <div className="manual-body">
+                <p className="hint">
+                  Brauzeringizda mulk.kadastr.uz ochiq va login qilingan holda:
+                  <br />
+                  <strong>F12 → Network</strong> → biror so‘rovni tanlang →{" "}
+                  <strong>Request Headers</strong> dan <code>Cookie:</code> qatorini
+                  (va agar bo‘lsa <code>Authorization</code> tokenini) nusxalab,
+                  shu yerga joylashtiring.
+                </p>
+                <label className="field-label">Cookie qatori</label>
+                <textarea
+                  className="manual-text"
+                  rows={3}
+                  spellCheck={false}
+                  placeholder="JSESSIONID=...; _ga=...; other=..."
+                  value={cookieText}
+                  onChange={(e) => setCookieText(e.target.value)}
+                />
+                <label className="field-label">Authorization token (ixtiyoriy)</label>
+                <input
+                  className="url-input"
+                  spellCheck={false}
+                  placeholder="Bearer eyJhbGciOi... (yoki tokenning o‘zi)"
+                  value={tokenText}
+                  onChange={(e) => setTokenText(e.target.value)}
+                />
+                <button
+                  className="btn primary small"
+                  onClick={manualImport}
+                  disabled={busy}
+                >
+                  {busy ? "Import qilinmoqda..." : "Qo‘lda import qilish"}
+                </button>
+              </div>
+            )}
+          </div>
         </>
       ) : (
         <p className="hint ok-text">{session?.message}</p>

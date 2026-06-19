@@ -50,6 +50,15 @@ export const Api = {
     api<{ url: string; session_domain: string }>("/api/session/login-url"),
   clearSession: () =>
     api<SessionStatus>("/api/session/clear", { method: "POST" }),
+  setSession: (
+    cookies: Record<string, string>,
+    headers: Record<string, string> = {},
+    source = "manual"
+  ) =>
+    api<SessionStatus>("/api/session/cookies", {
+      method: "POST",
+      body: JSON.stringify({ cookies, headers, source }),
+    }),
   regions: () => api<{ regions: string[] }>("/api/regions"),
   districts: (region: string, refresh = false, layer?: string) =>
     api<{ region: string; districts: string[]; source: string }>(
