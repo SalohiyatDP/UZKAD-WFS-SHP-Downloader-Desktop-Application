@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Api } from "../api";
 import type { SessionStatus } from "../types";
 
@@ -8,114 +8,26 @@ interface Props {
 }
 
 /**
- * Session setup flow. The user is already signed in to the cadastre portal in
- * another (normal browser) window; here they:
- *   1) paste/confirm a ready portal link (e.g. a mulk.kadastr.uz transaction
- *      details URL) and open it in the app's portal window,
- *   2) once the page loads with their session, import it (cookies + token).
+ * Session setup. The user pastes the authenticated request credentials copied
+ * from their logged-in mulk.kadastr.uz browser tab (DevTools → Network):
+ *   - the full Cookie header value (at least JSESSIONID), and
+ *   - the Authorization bearer token if the WFS calls use one (required when
+ *     the cookie alone returns HTTP 401/403).
+ * These are POSTed to the backend and reused for every WFS request.
  *
- * If the user is signed in to mulk.kadastr.uz in a desktop browser, the app can
- * also auto-detect that session — just press "Sessiyani import qilish".
- *
- * The portal window + import require the Electron bridge; in a plain browser
- * they degrade gracefully with an explanatory message.
+ * "Ulanishni tekshirish" sends one real request and shows the server's reply.
  */
 export function LoginPanel({ session, onSessionChange }: Props) {
   const [busy, setBusy] = useState(false);
-  const [url, setUrl] = useState("");
+  const [cookieText, setCookieText] = useState("");
+  const [tokenText, setTokenText] = useState("");
   const [info, setInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Manual import (works in any environment, incl. a plain browser).
-  const [showManual, setShowManual] = useState(false);
-  const [cookieText, setCookieText] = useState("");
-  const [tokenText, setTokenText] = useState("");
-
-  // Connection diagnostics.
   const [probing, setProbing] = useState(false);
   const [probe, setProbe] = useState<Record<string, unknown> | null>(null);
 
-  const electron = typeof window !== "undefined" && !!window.uzkad?.openLogin;
   const authed = session?.authenticated ?? false;
-
-  // Default the URL field to the backend-configured portal URL.
-  useEffect(() => {
-    Api.loginUrl()
-      .then(({ url: u }) => setUrl((prev) => prev || u))
-      .catch(() => setUrl((prev) => prev || "https://mulk.kadastr.uz/index.jsp"));
-  }, []);
-
-  const openPortal = async () => {
-    setError(null);
-    setInfo(null);
-    const target = url.trim() || "https://mulk.kadastr.uz/index.jsp";
-    try {
-      if (window.uzkad?.openLogin) {
-        await window.uzkad.openLogin(target);
-        setInfo(
-          "Portal oynasi ochildi. Agar so‘ralsa OneID / ERI bilan kiring " +
-            "(boshqa oynada kirilgan bo‘lsa ham), sahifa to‘liq yuklanganidan " +
-            "so‘ng \"Sessiyani import qilish\" tugmasini bosing."
-        );
-      } else if (window.uzkad?.openExternal) {
-        await window.uzkad.openExternal(target);
-      } else {
-        window.open(target, "_blank");
-      }
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
-  const importSession = async () => {
-    setError(null);
-    setInfo(null);
-    setBusy(true);
-    try {
-      if (window.uzkad?.importSession) {
-        const status = (await window.uzkad.importSession()) as SessionStatus;
-        if (status?.authenticated) {
-          setInfo("Sessiya muvaffaqiyatli import qilindi.");
-        } else {
-          setError(
-            "Sessiya topilmadi. Portal oynasida sahifa login qilingan holda " +
-              "ochilganiga ishonch hosil qiling."
-          );
-        }
-      } else {
-        setError("Bu funksiya faqat desktop (Electron) ilovasida ishlaydi.");
-      }
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-      onSessionChange();
-    }
-  };
-
-  const logout = async () => {
-    setBusy(true);
-    try {
-      if (window.uzkad?.logoutSession) await window.uzkad.logoutSession();
-      else await Api.clearSession();
-    } finally {
-      setBusy(false);
-      onSessionChange();
-    }
-  };
-
-  const runProbe = async () => {
-    setProbing(true);
-    setProbe(null);
-    try {
-      const res = await Api.probe();
-      setProbe(res);
-    } catch (e) {
-      setProbe({ ok: false, error: String(e) });
-    } finally {
-      setProbing(false);
-    }
-  };
 
   // Parse a raw "Cookie:" header value ("a=1; b=2; ...") into {name: value}.
   const parseCookieHeader = (raw: string): Record<string, string> => {
@@ -128,13 +40,13 @@ export function LoginPanel({ session, onSessionChange }: Props) {
         if (i > 0) {
           const name = pair.slice(0, i).trim();
           const value = pair.slice(i + 1).trim();
-          if (name) out[name] = value;
+          if (name && value) out[name] = value;
         }
       });
     return out;
   };
 
-  const manualImport = async () => {
+  const importSession = async () => {
     setError(null);
     setInfo(null);
     const cookies = parseCookieHeader(cookieText);
@@ -146,7 +58,7 @@ export function LoginPanel({ session, onSessionChange }: Props) {
         : `Bearer ${token}`;
     }
     if (Object.keys(cookies).length === 0 && !token) {
-      setError("Hech bo‘lmasa Cookie qatori yoki token kiriting.");
+      setError("Hech bo‘lmasa Cookie qatori (JSESSIONID=...) yoki token kiriting.");
       return;
     }
     setBusy(true);
@@ -154,11 +66,10 @@ export function LoginPanel({ session, onSessionChange }: Props) {
       const status = await Api.setSession(cookies, headers, "manual");
       if (status.authenticated) {
         setInfo(
-          `Sessiya import qilindi: ${status.cookie_count} cookie` +
-            (status.has_token ? " + token" : "") + "."
+          `Import qilindi: ${status.cookie_count} cookie` +
+            (status.has_token ? " + token" : "") +
+            ". Endi \"Ulanishni tekshirish\"ni bosing."
         );
-        setCookieText("");
-        setTokenText("");
       } else {
         setError("Import bo‘ldi, lekin sessiya bo‘sh ko‘rinmoqda.");
       }
@@ -169,6 +80,31 @@ export function LoginPanel({ session, onSessionChange }: Props) {
       onSessionChange();
     }
   };
+
+  const logout = async () => {
+    setBusy(true);
+    try {
+      await Api.clearSession();
+    } finally {
+      setBusy(false);
+      onSessionChange();
+    }
+  };
+
+  const runProbe = async () => {
+    setProbing(true);
+    setProbe(null);
+    try {
+      setProbe(await Api.probe());
+    } catch (e) {
+      setProbe({ ok: false, error: String(e) });
+    } finally {
+      setProbing(false);
+    }
+  };
+
+  const probeStatus = probe ? Number(probe.status) : null;
+  const needsToken = probeStatus === 401 || probeStatus === 403;
 
   return (
     <section className="login-panel">
@@ -181,135 +117,77 @@ export function LoginPanel({ session, onSessionChange }: Props) {
         )}
       </div>
 
-      <div className="probe-row">
-        <button
-          className="btn secondary small"
-          onClick={runProbe}
-          disabled={probing}
-        >
-          {probing ? "Tekshirilmoqda..." : "Ulanishni tekshirish"}
-        </button>
-        {probe && (
-          <div
-            className={`alert ${probe.ok ? "success" : "error"} error-small`}
+      {authed && <p className="hint ok-text">{session?.message}</p>}
+
+      <div className="manual-body">
+        <p className="hint">
+          Brauzerda <strong>mulk.kadastr.uz</strong> ochiq va login qilingan
+          holda: <strong>F12 → Network</strong> → biror WFS/so‘rovni tanlang →{" "}
+          <strong>Request Headers</strong> dan <code>Cookie:</code> qiymatini (va
+          agar bo‘lsa <code>Authorization</code> tokenini) nusxalab joylashtiring.
+        </p>
+
+        <label className="field-label">Cookie qatori (JSESSIONID=...)</label>
+        <textarea
+          className="manual-text"
+          rows={2}
+          spellCheck={false}
+          placeholder="JSESSIONID=90FF5C461EFF7C43CD03CB2F8D81131A"
+          value={cookieText}
+          onChange={(e) => setCookieText(e.target.value)}
+        />
+
+        <label className="field-label">Authorization token (ixtiyoriy)</label>
+        <input
+          className="url-input"
+          spellCheck={false}
+          placeholder="Bearer eyJhbGciOi... (yoki tokenning o‘zi)"
+          value={tokenText}
+          onChange={(e) => setTokenText(e.target.value)}
+        />
+
+        <div className="manual-actions">
+          <button className="btn primary small" onClick={importSession} disabled={busy}>
+            {busy ? "Import qilinmoqda..." : "Import qilish"}
+          </button>
+          <button
+            className="btn secondary small"
+            onClick={runProbe}
+            disabled={probing}
           >
-            <div>
-              <strong>Status:</strong> {String(probe.status ?? probe.error ?? "—")}
-              {probe.feature_count !== undefined && (
-                <>
-                  {" · "}
-                  <strong>features:</strong> {String(probe.feature_count)}
-                </>
-              )}
-            </div>
-            {Array.isArray(probe.property_keys) && (
-              <div>
-                <strong>Atributlar:</strong>{" "}
-                {(probe.property_keys as string[]).join(", ")}
-              </div>
-            )}
-            {probe.snippet !== undefined && (
-              <pre className="probe-snippet">{String(probe.snippet)}</pre>
-            )}
-          </div>
-        )}
+            {probing ? "Tekshirilmoqda..." : "Ulanishni tekshirish"}
+          </button>
+        </div>
       </div>
 
-      {!authed ? (
-        <>
-          <ol className="login-steps">
-            <li>
-              <span className="step-no">1</span>
-              <div className="step-body">
-                <span>Tayyor portal havolasini kiriting va oching:</span>
-                <div className="url-row">
-                  <input
-                    type="text"
-                    className="url-input"
-                    value={url}
-                    spellCheck={false}
-                    placeholder="https://mulk.kadastr.uz/index.jsp#portal/details/transaction/..."
-                    onChange={(e) => setUrl(e.target.value)}
-                  />
-                  <button className="btn primary small" onClick={openPortal}>
-                    Portalni ochish
-                  </button>
-                </div>
-              </div>
-            </li>
-            <li>
-              <span className="step-no">2</span> Sahifa login qilingan holda
-              yuklangach, sessiyani ilovaga oling
-              <button
-                className="btn secondary small"
-                onClick={importSession}
-                disabled={busy}
-              >
-                {busy ? "Import qilinmoqda..." : "Sessiyani import qilish"}
-              </button>
-            </li>
-          </ol>
-          <p className="hint">
-            Agar <strong>mulk.kadastr.uz</strong> ga oddiy brauzerda kirgan
-            bo‘lsangiz, ilova sessiyani avtomatik aniqlashga ham harakat qiladi —
-            shunchaki “Sessiyani import qilish”ni bosing.
-          </p>
-          {!electron && (
-            <p className="hint warn-text">
-              Eslatma: portal oynasi va avtomatik import faqat desktop (Electron)
-              ilovasida ishlaydi. Brauzerda esa quyidagi <strong>qo‘lda import</strong>
-              dan foydalaning.
-            </p>
-          )}
-
-          <div className="manual-box">
-            <button
-              type="button"
-              className="link-btn"
-              onClick={() => setShowManual((v) => !v)}
-            >
-              {showManual ? "▾" : "▸"} Qo‘lda import (Cookie / token)
-            </button>
-            {showManual && (
-              <div className="manual-body">
-                <p className="hint">
-                  Brauzeringizda mulk.kadastr.uz ochiq va login qilingan holda:
-                  <br />
-                  <strong>F12 → Network</strong> → biror so‘rovni tanlang →{" "}
-                  <strong>Request Headers</strong> dan <code>Cookie:</code> qatorini
-                  (va agar bo‘lsa <code>Authorization</code> tokenini) nusxalab,
-                  shu yerga joylashtiring.
-                </p>
-                <label className="field-label">Cookie qatori</label>
-                <textarea
-                  className="manual-text"
-                  rows={3}
-                  spellCheck={false}
-                  placeholder="JSESSIONID=...; _ga=...; other=..."
-                  value={cookieText}
-                  onChange={(e) => setCookieText(e.target.value)}
-                />
-                <label className="field-label">Authorization token (ixtiyoriy)</label>
-                <input
-                  className="url-input"
-                  spellCheck={false}
-                  placeholder="Bearer eyJhbGciOi... (yoki tokenning o‘zi)"
-                  value={tokenText}
-                  onChange={(e) => setTokenText(e.target.value)}
-                />
-                <button
-                  className="btn primary small"
-                  onClick={manualImport}
-                  disabled={busy}
-                >
-                  {busy ? "Import qilinmoqda..." : "Qo‘lda import qilish"}
-                </button>
-              </div>
+      {probe && (
+        <div className={`alert ${probe.ok ? "success" : "error"} error-small`}>
+          <div>
+            <strong>Status:</strong> {String(probe.status ?? probe.error ?? "—")}
+            {probe.feature_count !== undefined && (
+              <>
+                {" · "}
+                <strong>features:</strong> {String(probe.feature_count)}
+              </>
             )}
           </div>
-        </>
-      ) : (
-        <p className="hint ok-text">{session?.message}</p>
+          {Array.isArray(probe.property_keys) && (
+            <div>
+              <strong>Atributlar:</strong>{" "}
+              {(probe.property_keys as string[]).join(", ")}
+            </div>
+          )}
+          {needsToken && (
+            <div className="warn-text">
+              HTTP {probeStatus}: faqat JSESSIONID yetarli emas. DevTools’dan WFS
+              so‘rovining <code>Authorization: Bearer ...</code> tokenini topib,
+              yuqoridagi token maydoniga qo‘ying va qayta import qiling.
+            </div>
+          )}
+          {probe.snippet !== undefined && (
+            <pre className="probe-snippet">{String(probe.snippet)}</pre>
+          )}
+        </div>
       )}
 
       {info && <div className="alert info">{info}</div>}
