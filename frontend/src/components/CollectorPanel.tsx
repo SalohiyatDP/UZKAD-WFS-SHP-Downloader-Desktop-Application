@@ -147,9 +147,11 @@ export function CollectorPanel({
               <span className="step-no">2</span>
               <span>
                 UZKAD <strong>xarita</strong> sahifasini oching (login qilingan).
-                Xatcho‘pni bosing — yoki <strong>F12 → Console</strong> ga
-                skriptni qo‘yib Enter bosing. O‘ng pastda jarayon ko‘rinadi va
-                tugagach <strong>.geojson fayl</strong> yuklab olinadi.
+                Xatcho‘pni bosing yoki <strong>F12 → Console</strong> ga skriptni
+                qo‘ying. So‘ng <strong>xaritada bitta obyektni bosing yoki
+                zoom/suring</strong> (ilova o‘z so‘rovini o‘rganadi) va o‘ng
+                pastdagi oynada <strong>“Yig‘ishni boshlash”</strong>ni bosing.
+                Tugagach <strong>.geojson</strong> yuklab olinadi.
               </span>
             </li>
             <li>
