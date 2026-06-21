@@ -35,9 +35,18 @@ class ArcGISClient:
         proxy: Optional[str] = None,
         cookies: Optional[Dict[str, str]] = None,
         headers: Optional[Dict[str, str]] = None,
+        region: Optional[str] = None,
+        district: Optional[str] = None,
     ) -> None:
         self.base_url = (base_url or config.ARCGIS_BASE).rstrip("/")
         self.timeout = timeout
+        self.region = region
+        self.district = (
+            district
+            if district and district.lower() not in ("hammasi", "all", "barchasi")
+            else None
+        )
+        self._where_cache: Dict[str, str] = {}
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": config.USER_AGENT, "Accept": "*/*"})
         if headers:
@@ -79,6 +88,92 @@ class ArcGISClient:
             self._layer_query_url(layer), params=params, timeout=self.timeout
         )
 
+    # ------------------------------------------------------------------ #
+    # Region / district attribute filtering (so a district selection does not
+    # download the whole region or bleed into neighbouring regions).
+    # ------------------------------------------------------------------ #
+    def get_layer_fields(self, layer: str) -> List[Dict[str, Any]]:
+        try:
+            resp = self._request(self._layer_info_url(layer), {"f": "json"})
+            return resp.json().get("fields") or []
+        except (ArcGISError, ValueError):
+            return []
+
+    @staticmethod
+    def _esc(value: str) -> str:
+        return str(value).replace("'", "''")
+
+    @staticmethod
+    def _pick_field(fields: List[Dict[str, Any]], keywords: List[str]) -> Optional[str]:
+        # Prefer string fields whose name/alias matches a keyword.
+        for f in fields:
+            name = (f.get("name") or "")
+            alias = (f.get("alias") or "")
+            hay = f"{name} {alias}".lower()
+            if any(k in hay for k in keywords) and "id" not in name.lower()[-3:]:
+                if str(f.get("type", "")).lower().find("string") >= 0 or not f.get("type"):
+                    return name
+        # Fall back to any field (incl. code fields) matching a keyword.
+        for f in fields:
+            hay = f"{f.get('name','')} {f.get('alias','')}".lower()
+            if any(k in hay for k in keywords):
+                return f.get("name")
+        return None
+
+    def _validate_where(self, layer: str, where: str) -> bool:
+        """Return True if ``where`` is valid and matches at least one feature."""
+        try:
+            resp = self.raw_request(
+                layer, {"f": "json", "where": where, "returnCountOnly": "true"}
+            )
+            data = resp.json()
+            if not isinstance(data, dict) or data.get("error"):
+                return False
+            return int(data.get("count", 0)) > 0
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _build_where(self, layer: str) -> str:
+        fields = self.get_layer_fields(layer)
+        if not fields:
+            return "1=1"
+        region_f = self._pick_field(fields, ["region", "viloyat", "vil", "obl"])
+        district_f = self._pick_field(fields, ["district", "tuman", "rayon", "rai"])
+
+        region_clause = (
+            f"UPPER({region_f}) LIKE UPPER('{self._esc(self.region)}%')"
+            if region_f and self.region else None
+        )
+        district_clause = (
+            f"UPPER({district_f}) LIKE UPPER('{self._esc(self.district)}%')"
+            if district_f and self.district else None
+        )
+
+        # Prefer the most specific valid filter: region+district, then district,
+        # then region. Validate each against the live layer to avoid zeroing out
+        # results when field names/values do not match (then fall back to bbox).
+        candidates = []
+        if region_clause and district_clause:
+            candidates.append(f"{region_clause} AND {district_clause}")
+        if district_clause:
+            candidates.append(district_clause)
+        if region_clause:
+            candidates.append(region_clause)
+        for where in candidates:
+            if self._validate_where(layer, where):
+                log.info("ArcGIS filter for %s: %s", layer, where)
+                return where
+        log.warning(
+            "No region/district attribute filter matched for %s; using bbox only "
+            "(region=%s district=%s).", layer, self.region, self.district,
+        )
+        return "1=1"
+
+    def _resolve_where(self, layer: str) -> str:
+        if layer not in self._where_cache:
+            self._where_cache[layer] = self._build_where(layer)
+        return self._where_cache[layer]
+
 
 
     # ------------------------------------------------------------------ #
@@ -95,13 +190,14 @@ class ArcGISClient:
         """Return GeoJSON features intersecting ``bbox`` (EPSG:3857 metres)."""
         xmin, ymin, xmax, ymax = bbox
         url = self._layer_query_url(layer)
+        where = self._resolve_where(layer)
         features: List[Dict[str, Any]] = []
         offset = 0
         max_pages = 200
         for _ in range(max_pages):
             params = {
                 "f": "geojson",
-                "where": "1=1",
+                "where": where,
                 "geometry": f"{xmin},{ymin},{xmax},{ymax}",
                 "geometryType": "esriGeometryEnvelope",
                 "inSR": config.ARCGIS_SR,

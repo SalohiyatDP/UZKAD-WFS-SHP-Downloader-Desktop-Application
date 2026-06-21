@@ -127,7 +127,7 @@ def main() -> int:
         print("== Downloader (mocked WFS, parallel) ==")
         dl = GridDownloader(FakeWFS(), db, progress_cb=None)
         stats = dl.run(
-            layer="uzbekistan:all_pending_spatial_units",
+            layers=["uzbekistan:all_pending_spatial_units"],
             region="Namangan",
             district="Chust",
             grid_size=1000,

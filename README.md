@@ -263,9 +263,10 @@ MAHALLA, MUHOFAZA, DZY.
 requires an authenticated session and was observed to reject queries with HTTP
 403/Forbidden even from the logged-in page; kept only as a fallback.
 
-District selection narrows by region bounding box (the ArcGIS layers are
-queried spatially); region/district attribute filtering is not applied for the
-ArcGIS source.
+District selection narrows results by an **attribute filter** on the layer's
+region/district field when available (validated against the live service), so
+selecting a district downloads only that district. If the layer exposes no such
+field, it falls back to the region bounding box.
 
 ---
 

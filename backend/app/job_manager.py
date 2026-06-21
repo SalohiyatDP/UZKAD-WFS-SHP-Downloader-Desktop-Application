@@ -47,8 +47,12 @@ class JobManager:
         cookies = get_active_cookies()
         headers = get_active_headers()
         if config.DATA_SOURCE == "arcgis":
-            # NGIS ArcGIS REST: public, no auth required.
-            client = ArcGISClient(proxy=proxy, cookies=cookies, headers=headers)
+            # NGIS ArcGIS REST: public, no auth required. Region/district enable
+            # attribute filtering so a district selection isn't whole-region.
+            client = ArcGISClient(
+                proxy=proxy, cookies=cookies, headers=headers,
+                region=region, district=district,
+            )
         else:
             client = WFSClient(cookies=cookies, headers=headers, proxy=proxy)
         db = self.db

@@ -172,7 +172,8 @@ class GridDownloader:
         cells = grid_for_region_bbox_4326(
             tuple(region_info["bbox_4326"]),
             float(grid_size),
-            padding_deg=config.REGION_BBOX_PADDING_DEG,
+            padding_deg=(0.0 if config.DATA_SOURCE == "arcgis"
+                         else config.REGION_BBOX_PADDING_DEG),
             clamp_to=clamp_to,
         )
         n_cells = len(cells)
