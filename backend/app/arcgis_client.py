@@ -47,6 +47,10 @@ class ArcGISClient:
             else None
         )
         self._where_cache: Dict[str, str] = {}
+        self._mask = None            # shapely geometry (EPSG:3857) or None
+        self._prepared = None        # prepared mask for fast intersects
+        self._mask_bbox_4326 = None  # (minlon, minlat, maxlon, maxlat) or None
+        self._mask_resolved = False
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": config.USER_AGENT, "Accept": "*/*"})
         if headers:
@@ -174,6 +178,81 @@ class ArcGISClient:
             self._where_cache[layer] = self._build_where(layer)
         return self._where_cache[layer]
 
+    # ------------------------------------------------------------------ #
+    # Boundary mask: clip results precisely to the region/district polygon.
+    # ------------------------------------------------------------------ #
+    def _query_boundary(self, border_url: str, name: str, keywords: List[str]):
+        """Return a shapely (EPSG:3857) polygon for the admin unit, or None."""
+        from shapely.geometry import shape as _shape
+        from shapely.ops import unary_union
+
+        try:
+            finfo = self._request(border_url, {"f": "json"}).json()
+        except (ArcGISError, ValueError):
+            return None
+        field = self._pick_field(finfo.get("fields") or [], keywords)
+        if not field:
+            return None
+        params = {
+            "f": "geojson",
+            "where": f"UPPER({field}) LIKE UPPER('{self._esc(name)}%')",
+            "outFields": field,
+            "returnGeometry": "true",
+            "outSR": config.ARCGIS_SR,
+        }
+        try:
+            data = self._request(border_url + "/query", params).json()
+        except (ArcGISError, ValueError):
+            return None
+        geoms = []
+        for feat in data.get("features", []) or []:
+            g = feat.get("geometry")
+            if not g:
+                continue
+            try:
+                geoms.append(_shape(g))
+            except Exception:  # noqa: BLE001
+                continue
+        if not geoms:
+            return None
+        try:
+            return unary_union(geoms)
+        except Exception:  # noqa: BLE001
+            return geoms[0]
+
+    def _resolve_mask(self) -> None:
+        if self._mask_resolved:
+            return
+        self._mask_resolved = True
+        if not config.USE_BOUNDARY_MASK:
+            return
+        geom = None
+        if self.district and config.ARCGIS_DISTRICT_BORDER_URL:
+            geom = self._query_boundary(
+                config.ARCGIS_DISTRICT_BORDER_URL, self.district,
+                ["district", "tuman", "rayon", "nomi", "name"],
+            )
+        if geom is None and self.region and config.ARCGIS_REGION_BORDER_URL:
+            geom = self._query_boundary(
+                config.ARCGIS_REGION_BORDER_URL, self.region,
+                ["region", "viloyat", "vil", "obl", "nomi", "name"],
+            )
+        if geom is None or geom.is_empty:
+            return
+        from shapely.prepared import prep
+        from pyproj import Transformer
+
+        self._mask = geom
+        self._prepared = prep(geom)
+        xmin, ymin, xmax, ymax = geom.bounds  # EPSG:3857
+        t = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+        lon0, lat0 = t.transform(xmin, ymin)
+        lon1, lat1 = t.transform(xmax, ymax)
+        self._mask_bbox_4326 = (
+            min(lon0, lon1), min(lat0, lat1), max(lon0, lon1), max(lat0, lat1)
+        )
+        log.info("Boundary mask resolved (%s/%s)", self.region, self.district)
+
 
 
     # ------------------------------------------------------------------ #
@@ -191,6 +270,7 @@ class ArcGISClient:
         xmin, ymin, xmax, ymax = bbox
         url = self._layer_query_url(layer)
         where = self._resolve_where(layer)
+        self._resolve_mask()
         features: List[Dict[str, Any]] = []
         offset = 0
         max_pages = 200
@@ -229,12 +309,32 @@ class ArcGISClient:
             if len(features) >= config.MAX_FEATURES_PER_CELL:
                 log.warning("Cell hit MAX_FEATURES_PER_CELL; use a smaller grid.")
                 break
+        # Precisely clip to the region/district boundary when a mask is set.
+        if self._prepared is not None and features:
+            from shapely.geometry import shape as _shape
+
+            kept = []
+            for feat in features:
+                g = feat.get("geometry")
+                if not g:
+                    continue
+                try:
+                    if self._prepared.intersects(_shape(g)):
+                        kept.append(feat)
+                except Exception:  # noqa: BLE001
+                    kept.append(feat)
+            features = kept
         return features
 
     # ------------------------------------------------------------------ #
     def get_layer_extent_4326(
         self, layer: str
     ) -> Optional[Tuple[float, float, float, float]]:
+        # Prefer the resolved admin boundary bbox so the grid covers exactly the
+        # selected region/district (not a padded region rectangle).
+        self._resolve_mask()
+        if self._mask_bbox_4326:
+            return self._mask_bbox_4326
         try:
             resp = self._request(self._layer_info_url(layer), {"f": "json"})
             info = resp.json()

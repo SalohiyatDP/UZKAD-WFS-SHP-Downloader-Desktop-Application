@@ -104,6 +104,19 @@ ARCGIS_BASE = os.environ.get(
 )
 ARCGIS_SR = int(os.environ.get("UZKAD_ARCGIS_SR", "102100"))  # 102100 == EPSG:3857
 
+# Administrative boundary layers (Hosted folder) used to precisely clip results
+# to the selected region/district, since the data layers themselves lack
+# region/district attributes. Resolution falls back gracefully if unavailable.
+ARCGIS_REGION_BORDER_URL = os.environ.get(
+    "UZKAD_ARCGIS_REGION_BORDER",
+    "https://db.ngis.uz/db/rest/services/Hosted/VILOYAT_BORDER/FeatureServer/0",
+)
+ARCGIS_DISTRICT_BORDER_URL = os.environ.get(
+    "UZKAD_ARCGIS_DISTRICT_BORDER",
+    "https://db.ngis.uz/db/rest/services/Hosted/TUMAN_BORDER/FeatureServer/0",
+)
+USE_BOUNDARY_MASK = os.environ.get("UZKAD_USE_BOUNDARY_MASK", "1") not in ("0", "false", "")
+
 # Data source selector: "arcgis" (default, NGIS) or "wfs" (legacy kadastr.uz).
 DATA_SOURCE = os.environ.get("UZKAD_DATA_SOURCE", "arcgis").lower()
 
