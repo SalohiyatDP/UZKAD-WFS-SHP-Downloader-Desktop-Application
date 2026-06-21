@@ -165,7 +165,9 @@ Environment variables (all optional):
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `UZKAD_WFS_URL` | `https://mulk.kadastr.uz/gis/wfs` | WFS endpoint |
+| `UZKAD_DATA_SOURCE` | `arcgis` | Data source: `arcgis` (NGIS, public) or `wfs` (legacy) |
+| `UZKAD_ARCGIS_BASE` | `https://db.ngis.uz/db/rest/services/UZKAD` | ArcGIS REST base |
+| `UZKAD_WFS_URL` | `https://mulk.kadastr.uz/gis/wfs` | WFS endpoint (legacy) |
 | `UZKAD_WFS_BBOX_SRS` | `EPSG:3857` | CRS token in the WFS BBOX param (use URN form if needed) |
 | `UZKAD_REGION_BBOX_PADDING` | `0.05` | Degrees of padding around region bbox |
 | `UZKAD_DB_PATH` | `storage/features.sqlite` | SQLite database path |
@@ -219,6 +221,26 @@ cd backend
 source .venv/bin/activate
 python -m tests.test_pipeline
 ```
+
+---
+
+## Data source
+
+**Primary: NGIS ArcGIS REST (default, `UZKAD_DATA_SOURCE=arcgis`).** The
+`open.ngis.uz` map is served by public ArcGIS REST FeatureServers at
+`db.ngis.uz` (no authentication observed), e.g.
+`.../UZKAD/TURAR_UZKAD_DB16/FeatureServer/0/query`. The grid downloader queries
+these per cell with `f=geojson` + `resultOffset` paging. Selectable layers:
+TURAR (residential), NOTURAR (non-residential), AGR, AVTOYUL, FOREST, WATER,
+MAHALLA, MUHOFAZA, DZY.
+
+**Legacy: kadastr.uz WFS (`UZKAD_DATA_SOURCE=wfs`).** The `mulk.kadastr.uz` WFS
+requires an authenticated session and was observed to reject queries with HTTP
+403/Forbidden even from the logged-in page; kept only as a fallback.
+
+District selection narrows by region bounding box (the ArcGIS layers are
+queried spatially); region/district attribute filtering is not applied for the
+ArcGIS source.
 
 ---
 

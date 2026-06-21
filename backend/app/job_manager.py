@@ -15,6 +15,8 @@ from .downloader import GridDownloader
 from .logging_setup import get_logger
 from .session import get_active_cookies, get_active_headers, get_session_status
 from .wfs_client import WFSClient
+from .arcgis_client import ArcGISClient
+from . import config
 
 log = get_logger("jobs")
 
@@ -44,7 +46,11 @@ class JobManager:
     ) -> str:
         cookies = get_active_cookies()
         headers = get_active_headers()
-        client = WFSClient(cookies=cookies, headers=headers, proxy=proxy)
+        if config.DATA_SOURCE == "arcgis":
+            # NGIS ArcGIS REST: public, no auth required.
+            client = ArcGISClient(proxy=proxy, cookies=cookies, headers=headers)
+        else:
+            client = WFSClient(cookies=cookies, headers=headers, proxy=proxy)
         db = self.db
 
         def _cb(progress: Dict[str, Any]) -> None:

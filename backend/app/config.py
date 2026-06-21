@@ -89,6 +89,48 @@ LAYERS = [
     },
 ]
 
+# --------------------------------------------------------------------------- #
+# ArcGIS REST FeatureServer source (open.ngis.uz / db.ngis.uz) - PRIMARY
+# --------------------------------------------------------------------------- #
+# The open.ngis.uz map is served by public ArcGIS REST FeatureServers. This is
+# queryable without authentication, unlike the locked mulk.kadastr.uz WFS.
+ARCGIS_BASE = os.environ.get(
+    "UZKAD_ARCGIS_BASE", "https://db.ngis.uz/db/rest/services/UZKAD"
+)
+ARCGIS_SR = int(os.environ.get("UZKAD_ARCGIS_SR", "102100"))  # 102100 == EPSG:3857
+
+# Data source selector: "arcgis" (default, NGIS) or "wfs" (legacy kadastr.uz).
+DATA_SOURCE = os.environ.get("UZKAD_DATA_SOURCE", "arcgis").lower()
+
+# NGIS FeatureServer services (the "Qatlam" choices).
+NGIS_LAYERS = [
+    {"name": "TURAR_UZKAD_DB16", "title": "Turar-joy yer uchastkalari (TURAR)"},
+    {"name": "NOTURAR_UZKAD_DB16", "title": "Noturar-joy obyektlari (NOTURAR)"},
+    {"name": "AGR_ONLY_UZKAD_DB16", "title": "Qishloq xo'jaligi yerlari (AGR)"},
+    {"name": "AVTOYUL_UZKAD_DB16", "title": "Avtomobil yo'llari (AVTOYUL)"},
+    {"name": "FOREST_UZKAD_DB16", "title": "O'rmon fondi (FOREST)"},
+    {"name": "WATER_UZKAD_DB16", "title": "Suv obyektlari (WATER)"},
+    {"name": "MAHALLA_UZKAD_DB16", "title": "Mahallalar (MAHALLA)"},
+    {"name": "MUHOFAZA_UZKAD_DB16", "title": "Muhofaza zonalari (MUHOFAZA)"},
+    {"name": "DZY_UZKAD_DB16", "title": "Yer uchastkalari (DZY)"},
+]
+
+
+def active_layers() -> list:
+    """Return the layer list for the configured data source."""
+    if DATA_SOURCE == "arcgis":
+        return [
+            {
+                "name": l["name"],
+                "title": l["title"],
+                "geometry_type": "MultiPolygon",
+                "attributes": DEFAULT_ATTRIBUTES,
+            }
+            for l in NGIS_LAYERS
+        ]
+    return LAYERS
+
+
 # Geometry / dedup configuration.
 GEOMETRY_FIELD = "geometry"
 DEDUP_KEYS = ["uid", "cadastral_number"]  # checked in order

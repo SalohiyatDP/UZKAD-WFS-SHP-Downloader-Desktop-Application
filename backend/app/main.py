@@ -99,10 +99,10 @@ def list_regions() -> dict:
 @app.get("/api/regions/{region}/districts")
 def list_districts(region: str, refresh: bool = False, layer: Optional[str] = None) -> dict:
     static = regions_data.list_districts(region)
-    if not refresh:
+    if not refresh or config.DATA_SOURCE != "wfs":
         return {"region": region, "districts": static, "source": "static"}
 
-    # Try to refresh distinct districts from the live WFS.
+    # Try to refresh distinct districts from the live WFS (legacy source only).
     client = WFSClient(cookies=get_active_cookies(), headers=get_active_headers())
     target_layer = layer or config.LAYERS[0]["name"]
     try:
@@ -117,7 +117,7 @@ def list_districts(region: str, refresh: bool = False, layer: Optional[str] = No
 
 @app.get("/api/layers")
 def list_layers() -> dict:
-    return {"layers": config.LAYERS}
+    return {"layers": config.active_layers(), "source": config.DATA_SOURCE}
 
 
 @app.get("/api/wfs/probe")
@@ -126,9 +126,48 @@ def wfs_probe(
     region: Optional[str] = None,
     district: Optional[str] = None,
 ) -> dict:
-    """Diagnostic: send ONE small GetFeature with the active session and return
+    """Diagnostic: send ONE small request to the active data source and return
     the raw server response so auth/layer/format problems can be identified."""
-    target_layer = layer or config.LAYERS[0]["name"]
+    target_layer = layer or config.active_layers()[0]["name"]
+
+    if config.DATA_SOURCE == "arcgis":
+        from .arcgis_client import ArcGISClient
+
+        client = ArcGISClient()
+        params = {
+            "f": "geojson",
+            "where": "1=1",
+            "outFields": "*",
+            "returnGeometry": "false",
+            "resultRecordCount": 1,
+        }
+        info: dict = {"layer": target_layer, "source": "arcgis"}
+        try:
+            resp = client.raw_request(target_layer, params)
+        except Exception as exc:  # noqa: BLE001
+            info.update({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+            return info
+        text = resp.text or ""
+        info.update({
+            "ok": resp.status_code == 200,
+            "status": resp.status_code,
+            "content_type": resp.headers.get("Content-Type"),
+            "request_url": str(resp.url),
+            "snippet": text[:900],
+        })
+        try:
+            data = resp.json()
+            feats = data.get("features", []) or []
+            info["feature_count"] = len(feats)
+            if feats:
+                info["property_keys"] = list((feats[0].get("properties") or {}).keys())
+            elif data.get("error"):
+                info["ok"] = False
+        except ValueError:
+            info["is_json"] = False
+        return info
+
+    # Legacy WFS probe.
     client = WFSClient(cookies=get_active_cookies(), headers=get_active_headers())
     cql = build_region_filter(region, district) if region else None
     params = {
@@ -142,7 +181,7 @@ def wfs_probe(
     if cql:
         params["cql_filter"] = cql
 
-    info: dict = {"layer": target_layer, "cql_filter": cql}
+    info = {"layer": target_layer, "cql_filter": cql, "source": "wfs"}
     try:
         resp = client.raw_request(params)
     except Exception as exc:  # noqa: BLE001
