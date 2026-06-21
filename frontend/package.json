@@ -32,7 +32,7 @@
   },
   "build": {
     "appId": "uz.kadastr.uzkad-shp-downloader",
-    "productName": "UZKAD SHP Downloader",
+    "productName": "UZKAD WFS SHP Downloader",
     "directories": {
       "output": "release"
     },

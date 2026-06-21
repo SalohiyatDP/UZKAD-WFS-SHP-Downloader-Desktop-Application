@@ -15,15 +15,6 @@ export interface Layer {
   attributes: string[];
 }
 
-export interface SessionStatus {
-  authenticated: boolean;
-  source?: string | null;
-  browser: string | null;
-  cookie_count: number;
-  has_token?: boolean;
-  message: string;
-}
-
 export interface JobProgress {
   job_id: string;
   state: JobState;
@@ -57,17 +48,5 @@ export interface AppConfig {
   exports_dir: string;
   storage_dir: string;
   logs_dir: string;
-  wfs_url: string;
-}
-
-export interface LastJob {
-  job_id: string;
-  region: string;
-  district: string | null;
-  layer: string;
-  grid_size: number;
-  state: string;
-  total_cells: number;
-  completed_cells: number;
-  features_stored: number;
+  data_source: string;
 }

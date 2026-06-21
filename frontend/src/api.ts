@@ -4,8 +4,6 @@ import type {
   ExportFormat,
   JobProgress,
   Layer,
-  LastJob,
-  SessionStatus,
 } from "./types";
 
 // In Electron the backend URL is provided by the preload bridge. When running
@@ -51,82 +49,53 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 export const Api = {
   health: () => api<{ status: string }>("/api/health"),
   config: () => api<AppConfig>("/api/config"),
-  session: () => api<SessionStatus>("/api/session"),
-  loginUrl: () =>
-    api<{ url: string; session_domain: string }>("/api/session/login-url"),
-  clearSession: () =>
-    api<SessionStatus>("/api/session/clear", { method: "POST" }),
-  setSession: (
-    cookies: Record<string, string>,
-    headers: Record<string, string> = {},
-    source = "manual"
-  ) =>
-    api<SessionStatus>("/api/session/cookies", {
-      method: "POST",
-      body: JSON.stringify({ cookies, headers, source }),
-    }),
   regions: () => api<{ regions: string[] }>("/api/regions"),
-  districts: (region: string, refresh = false, layer?: string) =>
-    api<{ region: string; districts: string[]; source: string }>(
-      `/api/regions/${encodeURIComponent(region)}/districts?refresh=${refresh}` +
-        (layer ? `&layer=${encodeURIComponent(layer)}` : "")
+  districts: (region: string) =>
+    api<{ region: string; districts: string[] }>(
+      `/api/regions/${encodeURIComponent(region)}/districts`
     ),
-  layers: () => api<{ layers: Layer[] }>("/api/layers"),
-  probe: (layer?: string, region?: string, district?: string) => {
-    const params = new URLSearchParams();
-    if (layer) params.set("layer", layer);
-    if (region) params.set("region", region);
-    if (district) params.set("district", district);
-    return api<Record<string, unknown>>(`/api/wfs/probe?${params.toString()}`);
-  },
+  layers: () => api<{ layers: Layer[]; source: string }>("/api/layers"),
+  probe: (layer?: string) =>
+    api<Record<string, unknown>>(
+      `/api/wfs/probe${layer ? `?layer=${encodeURIComponent(layer)}` : ""}`
+    ),
   estimate: (region: string, gridSize: number) =>
     api<{ estimated_cells: number; bbox_4326: number[] }>(
       `/api/estimate?region=${encodeURIComponent(region)}&grid_size=${gridSize}`
     ),
-  collector: (
-    region: string,
-    district: string | undefined,
-    gridSize: number,
-    layer?: string
-  ) => {
-    const p = new URLSearchParams({ region, grid_size: String(gridSize) });
+  boundary: (region: string, district?: string) => {
+    const p = new URLSearchParams({ region });
     if (district) p.set("district", district);
-    if (layer) p.set("layer", layer);
-    return api<{
-      script: string;
-      bookmarklet: string;
-      filename: string;
-      estimated_cells: number;
-    }>(`/api/collector?${p.toString()}`);
+    return api<{ geometry: unknown | null; bbox: number[] | null }>(
+      `/api/boundary?${p.toString()}`
+    );
   },
-  importFeatures: (features: unknown[], region?: string, district?: string) =>
-    api<{
-      found: number;
-      valid: number;
-      stored_new: number;
-      total_in_db: number;
-    }>("/api/import", {
-      method: "POST",
-      body: JSON.stringify({ features, region, district }),
-    }),
+  featuresSample: (region?: string, district?: string, limit = 3000) => {
+    const p = new URLSearchParams({ limit: String(limit) });
+    if (region) p.set("region", region);
+    if (district) p.set("district", district);
+    return api<{ points: number[][]; count: number }>(
+      `/api/features/sample?${p.toString()}`
+    );
+  },
+  clearFeatures: (region?: string, district?: string) => {
+    const p = new URLSearchParams();
+    if (region) p.set("region", region);
+    if (district) p.set("district", district);
+    return api<{ removed: number; total_in_db: number }>(
+      `/api/features/clear?${p.toString()}`,
+      { method: "POST" }
+    );
+  },
   startDownload: (req: DownloadRequest) =>
     api<{ job_id: string; state: string }>("/api/download", {
       method: "POST",
       body: JSON.stringify(req),
     }),
   jobProgress: (jobId: string) => api<JobProgress>(`/api/jobs/${jobId}`),
-  pause: (jobId: string) =>
-    api(`/api/jobs/${jobId}/pause`, { method: "POST" }),
-  resumeJob: (jobId: string) =>
-    api(`/api/jobs/${jobId}/resume`, { method: "POST" }),
-  cancel: (jobId: string) =>
-    api(`/api/jobs/${jobId}/cancel`, { method: "POST" }),
-  resumeDownload: (jobId: string) =>
-    api<{ job_id: string; resumed: boolean }>(
-      `/api/download/resume?job_id=${encodeURIComponent(jobId)}`,
-      { method: "POST" }
-    ),
-  lastSession: () => api<{ job: LastJob | null }>("/api/last-session"),
+  pause: (jobId: string) => api(`/api/jobs/${jobId}/pause`, { method: "POST" }),
+  resumeJob: (jobId: string) => api(`/api/jobs/${jobId}/resume`, { method: "POST" }),
+  cancel: (jobId: string) => api(`/api/jobs/${jobId}/cancel`, { method: "POST" }),
   featuresCount: (region?: string, district?: string) => {
     const params = new URLSearchParams();
     if (region) params.set("region", region);

@@ -1,7 +1,7 @@
-"""FastAPI application exposing the UZKAD downloader to the Electron frontend.
+"""FastAPI application exposing the UZKAD downloader to the frontend.
 
-REST endpoints cover session status, region/district/layer discovery, download
-job control and export. A WebSocket streams live job progress to the UI.
+REST endpoints cover region/district/layer discovery, download job control,
+boundary/feature map data and export. A WebSocket streams live job progress.
 """
 from __future__ import annotations
 
@@ -18,17 +18,7 @@ from .database import FeatureDB
 from .exporter import Exporter
 from .job_manager import JobManager
 from .logging_setup import get_logger
-from .models import DownloadRequest, ExportFormat, SetSessionRequest
-from .collector import build_bookmarklet, build_config, build_script
-from .downloader import GridDownloader
-from .session import (
-    clear_session,
-    get_active_cookies,
-    get_active_headers,
-    get_session_status,
-    set_session,
-)
-from .wfs_client import WFSClient, WFSError, build_region_filter
+from .models import DownloadRequest, ExportFormat
 from .grid_generator import estimate_cell_count
 
 log = get_logger("api")
@@ -46,7 +36,7 @@ _jobs = JobManager(_db)
 
 
 # --------------------------------------------------------------------------- #
-# Health & session
+# Health & config
 # --------------------------------------------------------------------------- #
 @app.get("/api/health")
 def health() -> dict:
@@ -61,31 +51,8 @@ def app_config() -> dict:
         "exports_dir": str(config.EXPORTS_DIR),
         "storage_dir": str(config.STORAGE_DIR),
         "logs_dir": str(config.LOGS_DIR),
-        "wfs_url": config.WFS_URL,
+        "data_source": config.DATA_SOURCE,
     }
-
-
-@app.get("/api/session")
-def session_status() -> dict:
-    return get_session_status()
-
-
-@app.get("/api/session/login-url")
-def session_login_url() -> dict:
-    """The portal URL the in-app login window should open by default."""
-    return {"url": config.PORTAL_URL, "session_domain": config.SESSION_COOKIE_DOMAIN}
-
-
-@app.post("/api/session/cookies")
-def set_session_cookies(req: SetSessionRequest) -> dict:
-    """Receive cookies / auth headers captured by the in-app login window."""
-    return set_session(cookies=req.cookies, headers=req.headers, source=req.source)
-
-
-@app.post("/api/session/clear")
-def clear_session_endpoint() -> dict:
-    clear_session()
-    return get_session_status()
 
 
 # --------------------------------------------------------------------------- #
@@ -97,22 +64,8 @@ def list_regions() -> dict:
 
 
 @app.get("/api/regions/{region}/districts")
-def list_districts(region: str, refresh: bool = False, layer: Optional[str] = None) -> dict:
-    static = regions_data.list_districts(region)
-    if not refresh or config.DATA_SOURCE != "wfs":
-        return {"region": region, "districts": static, "source": "static"}
-
-    # Try to refresh distinct districts from the live WFS (legacy source only).
-    client = WFSClient(cookies=get_active_cookies(), headers=get_active_headers())
-    target_layer = layer or config.LAYERS[0]["name"]
-    try:
-        cql = build_region_filter(region, None)
-        dynamic = client.get_distinct_values(target_layer, "district", cql_filter=cql)
-        if dynamic:
-            return {"region": region, "districts": dynamic, "source": "wfs"}
-    except WFSError as exc:
-        log.warning("Dynamic district refresh failed: %s", exc)
-    return {"region": region, "districts": static, "source": "static-fallback"}
+def list_districts(region: str) -> dict:
+    return {"region": region, "districts": regions_data.list_districts(region)}
 
 
 @app.get("/api/layers")
@@ -121,90 +74,42 @@ def list_layers() -> dict:
 
 
 @app.get("/api/wfs/probe")
-def wfs_probe(
-    layer: Optional[str] = None,
-    region: Optional[str] = None,
-    district: Optional[str] = None,
-) -> dict:
-    """Diagnostic: send ONE small request to the active data source and return
-    the raw server response so auth/layer/format problems can be identified."""
+def wfs_probe(layer: Optional[str] = None) -> dict:
+    """Diagnostic: send ONE small query to the active data source and return the
+    raw server response so layer/format/connectivity problems are visible."""
+    from .arcgis_client import ArcGISClient
+
     target_layer = layer or config.active_layers()[0]["name"]
-
-    if config.DATA_SOURCE == "arcgis":
-        from .arcgis_client import ArcGISClient
-
-        client = ArcGISClient()
-        params = {
-            "f": "geojson",
-            "where": "1=1",
-            "outFields": "*",
-            "returnGeometry": "false",
-            "resultRecordCount": 1,
-        }
-        info: dict = {"layer": target_layer, "source": "arcgis"}
-        try:
-            resp = client.raw_request(target_layer, params)
-        except Exception as exc:  # noqa: BLE001
-            info.update({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
-            return info
-        text = resp.text or ""
-        info.update({
-            "ok": resp.status_code == 200,
-            "status": resp.status_code,
-            "content_type": resp.headers.get("Content-Type"),
-            "request_url": str(resp.url),
-            "snippet": text[:900],
-        })
-        try:
-            data = resp.json()
-            feats = data.get("features", []) or []
-            info["feature_count"] = len(feats)
-            if feats:
-                info["property_keys"] = list((feats[0].get("properties") or {}).keys())
-            elif data.get("error"):
-                info["ok"] = False
-        except ValueError:
-            info["is_json"] = False
-        return info
-
-    # Legacy WFS probe.
-    client = WFSClient(cookies=get_active_cookies(), headers=get_active_headers())
-    cql = build_region_filter(region, district) if region else None
+    client = ArcGISClient()
     params = {
-        "service": "WFS",
-        "version": config.WFS_VERSION,
-        "request": "GetFeature",
-        "typeNames": target_layer,
-        "outputFormat": config.OUTPUT_FORMAT,
-        "count": 1,
+        "f": "geojson",
+        "where": "1=1",
+        "outFields": "*",
+        "returnGeometry": "false",
+        "resultRecordCount": 1,
     }
-    if cql:
-        params["cql_filter"] = cql
-
-    info = {"layer": target_layer, "cql_filter": cql, "source": "wfs"}
+    info: dict = {"layer": target_layer, "source": config.DATA_SOURCE}
     try:
-        resp = client.raw_request(params)
+        resp = client.raw_request(target_layer, params)
     except Exception as exc:  # noqa: BLE001
         info.update({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
         return info
-
     text = resp.text or ""
-    info.update(
-        {
-            "ok": resp.status_code == 200,
-            "status": resp.status_code,
-            "content_type": resp.headers.get("Content-Type"),
-            "request_url": str(resp.url),
-            "snippet": text[:900],
-        }
-    )
+    info.update({
+        "ok": resp.status_code == 200,
+        "status": resp.status_code,
+        "content_type": resp.headers.get("Content-Type"),
+        "request_url": str(resp.url),
+        "snippet": text[:900],
+    })
     try:
         data = resp.json()
         feats = data.get("features", []) or []
         info["feature_count"] = len(feats)
-        info["numberMatched"] = data.get("numberMatched")
         if feats:
             info["property_keys"] = list((feats[0].get("properties") or {}).keys())
+        elif data.get("error"):
+            info["ok"] = False
     except ValueError:
         info["is_json"] = False
     return info
@@ -225,59 +130,50 @@ def estimate(region: str, grid_size: int = config.DEFAULT_GRID_SIZE) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Browser collector (bookmarklet) + GeoJSON import
+# Map support: boundary polygon + live feature sample
 # --------------------------------------------------------------------------- #
-@app.get("/api/collector")
-def collector(
-    region: str,
+@app.get("/api/boundary")
+def boundary(region: str, district: Optional[str] = None) -> dict:
+    """Return the selected region/district boundary as WGS84 GeoJSON (for the map)."""
+    if config.DATA_SOURCE != "arcgis":
+        return {"geometry": None, "bbox": None}
+    from .arcgis_client import ArcGISClient
+
+    client = ArcGISClient(region=region, district=district)
+    geom = client.boundary_geojson_4326()
+    if geom is None:
+        return {"geometry": None, "bbox": None}
+    return {"geometry": geom["geometry"], "bbox": geom["bbox"]}
+
+
+@app.get("/api/features/sample")
+def features_sample(
+    region: Optional[str] = None,
     district: Optional[str] = None,
-    grid_size: int = config.DEFAULT_GRID_SIZE,
-    layer: Optional[str] = None,
+    limit: int = 3000,
 ) -> dict:
-    region_info = regions_data.get_region(region)
-    if not region_info:
-        raise HTTPException(status_code=404, detail=f"Unknown region: {region}")
-    target_layer = layer or config.active_layers()[0]["name"]
-    cql = build_region_filter(region, district)
-    safe = "".join(c if c.isalnum() else "_" for c in (district or region))
-    filename = f"uzkad_{safe}.geojson"
-    cfg = build_config(
-        region=region,
-        bbox_4326=list(region_info["bbox_4326"]),
-        cql_filter=cql,
-        layer=target_layer,
-        grid_size=grid_size,
-        filename=filename,
-    )
-    script = build_script(cfg)
-    return {
-        "script": script,
-        "bookmarklet": build_bookmarklet(script),
-        "filename": filename,
-        "estimated_cells": estimate_cell_count(
-            tuple(region_info["bbox_4326"]), float(grid_size)
-        ),
-    }
+    """Return centroids (lon/lat) of stored features for live map plotting."""
+    from shapely import wkb as _wkb
+    from pyproj import Transformer
+
+    t = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+    points: List[List[float]] = []
+    for blob in _db.sample_geometry_wkb(region=region, district=district, limit=limit):
+        try:
+            geom = _wkb.loads(bytes(blob))
+            pt = geom.representative_point()
+            lon, lat = t.transform(pt.x, pt.y)
+            points.append([round(lon, 6), round(lat, 6)])
+        except Exception:  # noqa: BLE001
+            continue
+    return {"points": points, "count": _db.count_features(region=region, district=district)}
 
 
-@app.post("/api/import")
-def import_features(payload: dict) -> dict:
-    """Ingest a GeoJSON FeatureCollection (collected in the browser) into the DB.
-
-    Body: {"region"?: str, "district"?: str, "features": [...]} or a raw
-    GeoJSON FeatureCollection ({"type":"FeatureCollection","features":[...]}).
-    """
-    features = payload.get("features")
-    if not isinstance(features, list) or not features:
-        raise HTTPException(status_code=400, detail="No features provided")
-    rows = GridDownloader._features_to_rows(features)
-    stored = _db.upsert_features(rows) if rows else 0
-    return {
-        "found": len(features),
-        "valid": len(rows),
-        "stored_new": stored,
-        "total_in_db": _db.count_features(),
-    }
+@app.post("/api/features/clear")
+def features_clear(region: Optional[str] = None, district: Optional[str] = None) -> dict:
+    """Delete stored features (optionally scoped) to start a clean run."""
+    removed = _db.clear_features(region=region, district=district)
+    return {"removed": removed, "total_in_db": _db.count_features()}
 
 
 # --------------------------------------------------------------------------- #
@@ -301,26 +197,6 @@ def start_download(req: DownloadRequest) -> dict:
         auto_export=req.auto_export,
     )
     return {"job_id": job_id, "state": "running"}
-
-
-@app.post("/api/download/resume")
-def resume_download(job_id: str) -> dict:
-    last = _db.get_last_job()
-    if not last or last["job_id"] != job_id:
-        raise HTTPException(status_code=404, detail="Job not found for resume")
-    layers = [l for l in str(last.get("layer") or "").split(",") if l]
-    new_id = _jobs.start(
-        layers=layers,
-        region=last["region"],
-        district=last["district"],
-        grid_size=last["grid_size"],
-        max_workers=config.DEFAULT_MAX_WORKERS,
-        resume=True,
-        job_id=job_id,
-        formats=["shp"],
-        auto_export=True,
-    )
-    return {"job_id": new_id, "state": "running", "resumed": True}
 
 
 @app.get("/api/jobs/{job_id}")

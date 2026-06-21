@@ -9,4 +9,3 @@ pyproj>=3.6
 pyogrio>=0.9
 fiona>=1.9
 pandas>=2.2
-browser_cookie3>=0.19

@@ -565,3 +565,13 @@ select {
 .leaflet-container {
   background: #0b1220;
 }
+
+
+.layer-tools {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 6px;
+}
+.layer-tools .link-btn {
+  font-size: 12px;
+}

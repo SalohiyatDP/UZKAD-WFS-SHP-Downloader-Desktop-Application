@@ -1,104 +1,143 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { Api } from "../api";
 import type { JobProgress } from "../types";
 
 interface Props {
-  bbox: number[] | null; // [minLon, minLat, maxLon, maxLat]
+  region: string;
+  district: string | null;
+  bbox: number[] | null; // [minLon, minLat, maxLon, maxLat] fallback
   progress: JobProgress | null;
 }
 
-const COLS = 24; // visualization grid resolution
-
-const STYLE_IDLE: L.PathOptions = {
-  color: "#334155",
-  weight: 1,
-  fillColor: "#1e293b",
-  fillOpacity: 0.12,
-};
-const STYLE_DONE: L.PathOptions = {
-  color: "#16a34a",
-  weight: 1,
-  fillColor: "#22c55e",
-  fillOpacity: 0.55,
-};
+const RUNNING_STATES = ["running", "paused"];
 
 /**
- * Live map view of the download. Shows the region as a coarse visualization
- * grid whose cells fill green in proportion to the job's progress, giving a
- * real-time "scan" of how the area is being collected.
+ * Live map of the download: draws the actual region/district boundary polygon
+ * and plots the real collected features (sampled centroids) as they are stored,
+ * so the map reflects the true area and progress.
  */
-export function MapPanel({ bbox, progress }: Props) {
+export function MapPanel({ region, district, bbox, progress }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const cellsRef = useRef<L.Rectangle[]>([]);
+  const rendererRef = useRef<L.Canvas | null>(null);
+  const boundaryRef = useRef<L.Layer | null>(null);
+  const pointsRef = useRef<L.LayerGroup | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
 
   // Init map once.
   useEffect(() => {
     if (mapRef.current || !containerRef.current) return;
-    const map = L.map(containerRef.current, {
-      attributionControl: true,
-      zoomControl: true,
-    }).setView([41.3, 69.2], 6);
+    const map = L.map(containerRef.current, { zoomControl: true }).setView(
+      [41.3, 69.2],
+      6
+    );
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
       attribution: "© OpenStreetMap",
     }).addTo(map);
+    rendererRef.current = L.canvas({ padding: 0.5 });
+    pointsRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
-    // Ensure correct sizing after layout.
     setTimeout(() => map.invalidateSize(), 200);
     return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
       map.remove();
       mapRef.current = null;
     };
   }, []);
 
-  // Rebuild the visualization grid when the region bbox changes.
+  // Draw the region/district boundary when selection changes.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !bbox || bbox.length !== 4) return;
-    cellsRef.current.forEach((r) => r.remove());
-    cellsRef.current = [];
+    if (!map || !region) return;
+    let cancelled = false;
+    pointsRef.current?.clearLayers();
 
-    const [minLon, minLat, maxLon, maxLat] = bbox;
-    const bounds = L.latLngBounds([minLat, minLon], [maxLat, maxLon]);
-    map.fitBounds(bounds, { padding: [12, 12] });
-
-    const aspect = (maxLat - minLat) / Math.max(1e-9, maxLon - minLon);
-    const rows = Math.max(6, Math.min(40, Math.round(COLS * aspect)));
-    const dLon = (maxLon - minLon) / COLS;
-    const dLat = (maxLat - minLat) / rows;
-
-    // South -> north, west -> east, so the fill sweeps naturally.
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const y0 = minLat + r * dLat;
-        const x0 = minLon + c * dLon;
+    (async () => {
+      try {
+        const { geometry } = await Api.boundary(region, district ?? undefined);
+        if (cancelled || !map) return;
+        if (boundaryRef.current) {
+          map.removeLayer(boundaryRef.current);
+          boundaryRef.current = null;
+        }
+        if (geometry) {
+          const layer = L.geoJSON(geometry as GeoJSON.GeoJsonObject, {
+            style: { color: "#38bdf8", weight: 2, fill: false },
+          }).addTo(map);
+          boundaryRef.current = layer;
+          map.fitBounds(layer.getBounds(), { padding: [12, 12] });
+          return;
+        }
+      } catch {
+        /* fall through to bbox */
+      }
+      if (!cancelled && bbox && bbox.length === 4) {
         const rect = L.rectangle(
           [
-            [y0, x0],
-            [y0 + dLat, x0 + dLon],
+            [bbox[1], bbox[0]],
+            [bbox[3], bbox[2]],
           ],
-          STYLE_IDLE
+          { color: "#38bdf8", weight: 1, fill: false }
         ).addTo(map);
-        cellsRef.current.push(rect);
+        boundaryRef.current = rect;
+        map.fitBounds(rect.getBounds(), { padding: [12, 12] });
       }
-    }
-    setTimeout(() => map.invalidateSize(), 100);
-  }, [bbox?.[0], bbox?.[1], bbox?.[2], bbox?.[3]]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [region, district, bbox?.[0], bbox?.[1], bbox?.[2], bbox?.[3]]);
 
-  // Fill cells according to progress fraction.
+
+  // Plot the real collected features (sampled) live while a job runs.
   useEffect(() => {
-    const cells = cellsRef.current;
-    if (!cells.length) return;
-    const total = progress?.total_cells ?? 0;
-    const done = progress?.completed_cells ?? 0;
-    const frac = total > 0 ? Math.min(1, done / total) : 0;
-    const fill = Math.round(frac * cells.length);
-    cells.forEach((rect, i) => {
-      rect.setStyle(i < fill ? STYLE_DONE : STYLE_IDLE);
-    });
-  }, [progress?.completed_cells, progress?.total_cells]);
+    const state = progress?.state;
+    const fetchSample = async () => {
+      try {
+        const { points } = await Api.featuresSample(
+          region || undefined,
+          district ?? undefined,
+          5000
+        );
+        const group = pointsRef.current;
+        if (!group) return;
+        group.clearLayers();
+        for (const [lon, lat] of points) {
+          L.circleMarker([lat, lon], {
+            renderer: rendererRef.current ?? undefined,
+            radius: 2,
+            color: "#22c55e",
+            weight: 0,
+            fillColor: "#22c55e",
+            fillOpacity: 0.7,
+          }).addTo(group);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    if (state && RUNNING_STATES.includes(state)) {
+      fetchSample();
+      pollRef.current = setInterval(fetchSample, 2500);
+    } else if (state === "completed") {
+      fetchSample();
+    }
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [progress?.state, region, district]);
 
   return (
     <section className="map-panel">
@@ -107,13 +146,14 @@ export function MapPanel({ bbox, progress }: Props) {
         {progress && (
           <span className="map-stat">
             {progress.completed_cells}/{progress.total_cells} katak ·{" "}
-            {progress.features_found} obyekt
+            {progress.features_stored} obyekt
           </span>
         )}
       </div>
       <div ref={containerRef} className="map-canvas" />
       <p className="hint map-note">
-        Yashil kataklar — yuklab olingan hudud (taxminiy vizualizatsiya).
+        Ko‘k chiziq — tanlangan hudud chegarasi; yashil nuqtalar — yuklab
+        olingan obyektlar (jonli, namuna).
       </p>
     </section>
   );

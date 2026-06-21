@@ -165,6 +165,25 @@ class FeatureDB:
                 for row in batch:
                     yield dict(zip(names, row))
 
+    def sample_geometry_wkb(self, region: Optional[str] = None,
+                            district: Optional[str] = None,
+                            limit: int = 3000) -> list:
+        """Return up to ``limit`` geometry_wkb blobs (for live map plotting)."""
+        clauses, params = [], []
+        if region:
+            clauses.append("region = ?")
+            params.append(region)
+        if district:
+            clauses.append("district = ?")
+            params.append(district)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(int(limit))
+        with self._lock:
+            cur = self._conn.execute(
+                f"SELECT geometry_wkb FROM features{where} LIMIT ?", params
+            )
+            return [r[0] for r in cur.fetchall()]
+
     def clear_features(self, region: Optional[str] = None,
                        district: Optional[str] = None) -> int:
         clauses, params = [], []

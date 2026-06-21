@@ -207,7 +207,7 @@ async function createWindow(): Promise<void> {
     height: 800,
     minWidth: 900,
     minHeight: 640,
-    title: "UZKAD SHP Downloader",
+    title: "UZKAD WFS SHP Downloader",
     backgroundColor: "#0f172a",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

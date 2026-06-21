@@ -220,12 +220,9 @@ class ArcGISClient:
         except Exception:  # noqa: BLE001
             return geoms[0]
 
-    def _resolve_mask(self) -> None:
-        if self._mask_resolved:
-            return
-        self._mask_resolved = True
-        if not config.USE_BOUNDARY_MASK:
-            return
+    def fetch_boundary_3857(self):
+        """Fetch the region/district boundary as a shapely geometry (EPSG:3857),
+        district first then region. Ignores USE_BOUNDARY_MASK."""
         geom = None
         if self.district and config.ARCGIS_DISTRICT_BORDER_URL:
             geom = self._query_boundary(
@@ -237,6 +234,33 @@ class ArcGISClient:
                 config.ARCGIS_REGION_BORDER_URL, self.region,
                 ["region", "viloyat", "vil", "obl", "nomi", "name"],
             )
+        return geom
+
+    def boundary_geojson_4326(self) -> Optional[Dict[str, Any]]:
+        """Return {'geometry': GeoJSON(WGS84), 'bbox': [minlon,minlat,maxlon,maxlat]}."""
+        geom = self.fetch_boundary_3857()
+        if geom is None or geom.is_empty:
+            return None
+        from shapely.ops import transform as _transform
+        from shapely.geometry import mapping
+        from pyproj import Transformer
+
+        t = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
+        g = _transform(t.transform, geom)
+        try:
+            g = g.simplify(0.0005, preserve_topology=True)
+        except Exception:  # noqa: BLE001
+            pass
+        minx, miny, maxx, maxy = g.bounds
+        return {"geometry": mapping(g), "bbox": [minx, miny, maxx, maxy]}
+
+    def _resolve_mask(self) -> None:
+        if self._mask_resolved:
+            return
+        self._mask_resolved = True
+        if not config.USE_BOUNDARY_MASK:
+            return
+        geom = self.fetch_boundary_3857()
         if geom is None or geom.is_empty:
             return
         from shapely.prepared import prep

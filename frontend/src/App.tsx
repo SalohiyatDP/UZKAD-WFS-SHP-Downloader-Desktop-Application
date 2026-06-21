@@ -27,6 +27,7 @@ export default function App() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<string[] | null>(null);
 
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -171,6 +172,19 @@ export default function App() {
     }
   };
 
+  const clearDb = async () => {
+    setError(null);
+    setInfo(null);
+    try {
+      const res = await Api.clearFeatures();
+      setExportResult(null);
+      setProgress(null);
+      setInfo(`Baza tozalandi (${res.removed} obyekt o‘chirildi).`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const pause = () => jobId && Api.pause(jobId);
   const resume = () => jobId && Api.resumeJob(jobId);
   const cancel = () => jobId && Api.cancel(jobId);
@@ -181,11 +195,12 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>UZKAD SHP Downloader</h1>
+        <h1>UZKAD WFS SHP Downloader</h1>
         <span className="source-badge">Manba: NGIS (ochiq)</span>
       </header>
 
       {error && <div className="alert error">{error}</div>}
+      {info && <div className="alert success">{info}</div>}
 
       <main className="layout">
         <section className="form-card">
@@ -211,6 +226,22 @@ export default function App() {
           </Field>
 
           <Field label="Qatlamlar (bir nechtasini tanlash mumkin)">
+            <div className="layer-tools">
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => setSelectedLayers(layers.map((l) => l.name))}
+              >
+                Hammasini tanlash
+              </button>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => setSelectedLayers([])}
+              >
+                Tozalash
+              </button>
+            </div>
             <div className="checkbox-list">
               {layers.map((l) => (
                 <label key={l.name} className="checkbox-row">
@@ -287,6 +318,14 @@ export default function App() {
                 Qayta eksport
               </button>
             )}
+            <button
+              className="btn secondary"
+              onClick={clearDb}
+              disabled={progress?.state === "running"}
+              title="Saqlangan obyektlarni o‘chirib, toza boshlash"
+            >
+              Bazani tozalash
+            </button>
           </div>
 
           {exportResult && (
@@ -321,7 +360,12 @@ export default function App() {
             onResume={resume}
             onCancel={cancel}
           />
-          <MapPanel bbox={regionBbox} progress={progress} />
+          <MapPanel
+            region={region}
+            district={district === ALL_DISTRICTS ? null : district}
+            bbox={regionBbox}
+            progress={progress}
+          />
         </div>
       </main>
     </div>

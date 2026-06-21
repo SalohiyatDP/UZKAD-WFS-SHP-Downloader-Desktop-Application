@@ -13,7 +13,6 @@ from typing import Any, Dict, Optional
 from .database import FeatureDB
 from .downloader import GridDownloader
 from .logging_setup import get_logger
-from .session import get_active_cookies, get_active_headers, get_session_status
 from .wfs_client import WFSClient
 from .arcgis_client import ArcGISClient
 from . import config
@@ -44,17 +43,12 @@ class JobManager:
         export_crs: str = "EPSG:4326",
         auto_export: bool = True,
     ) -> str:
-        cookies = get_active_cookies()
-        headers = get_active_headers()
         if config.DATA_SOURCE == "arcgis":
             # NGIS ArcGIS REST: public, no auth required. Region/district enable
-            # attribute filtering so a district selection isn't whole-region.
-            client = ArcGISClient(
-                proxy=proxy, cookies=cookies, headers=headers,
-                region=region, district=district,
-            )
+            # boundary-mask clipping so a district selection isn't whole-region.
+            client = ArcGISClient(proxy=proxy, region=region, district=district)
         else:
-            client = WFSClient(cookies=cookies, headers=headers, proxy=proxy)
+            client = WFSClient(proxy=proxy)
         db = self.db
 
         def _cb(progress: Dict[str, Any]) -> None:
@@ -90,10 +84,7 @@ class JobManager:
         thread = threading.Thread(target=_run, name=f"download-{jid}", daemon=True)
         self._threads[jid] = thread
         thread.start()
-        log.info(
-            "Started job %s (%s/%s) cookies=%s token=%s",
-            jid, region, district, len(cookies), bool(headers.get("Authorization")),
-        )
+        log.info("Started job %s (%s / %s) layers=%s", jid, region, district, layers)
         return jid
 
     # ------------------------------------------------------------------ #

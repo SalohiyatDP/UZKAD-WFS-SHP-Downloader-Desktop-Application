@@ -65,21 +65,3 @@ class JobProgress(BaseModel):
     message: str = ""
     last_error: str = ""
     export_files: List[str] = Field(default_factory=list)
-
-
-class SessionStatus(BaseModel):
-    authenticated: bool
-    browser: Optional[str] = None
-    cookie_count: int = 0
-    message: str = ""
-
-
-class SetSessionRequest(BaseModel):
-    """Cookies/headers captured by the in-app login window."""
-
-    cookies: dict = Field(default_factory=dict, description="{name: value}")
-    headers: dict = Field(
-        default_factory=dict,
-        description="Extra request headers, e.g. {'Authorization': 'Bearer ...'}",
-    )
-    source: str = Field("in-app", description="Where the session came from")
