@@ -44,7 +44,7 @@ export interface JobProgress {
 export interface DownloadRequest {
   region: string;
   district: string | null;
-  layer: string;
+  layers: string[];
   grid_size: number;
   formats: ExportFormat[];
   max_workers: number;

@@ -31,7 +31,10 @@ class DownloadRequest(BaseModel):
     district: Optional[str] = Field(
         None, description="District (tuman) name; None or 'Hammasi' means whole region"
     )
-    layer: str = Field(..., description="WFS layer name, e.g. uzbekistan:all_pending_spatial_units")
+    layers: List[str] = Field(
+        default_factory=list, description="One or more layer/service names"
+    )
+    layer: Optional[str] = Field(None, description="Single layer (legacy/back-compat)")
     grid_size: int = Field(DEFAULT_GRID_SIZE, description="Grid cell size in metres (EPSG:3857)")
     formats: List[ExportFormat] = Field(default_factory=lambda: [ExportFormat.shp])
     max_workers: int = Field(DEFAULT_MAX_WORKERS, ge=1, le=16)
@@ -39,6 +42,12 @@ class DownloadRequest(BaseModel):
     auto_export: bool = Field(
         True, description="Export to files automatically when the download finishes"
     )
+
+    def effective_layers(self) -> List[str]:
+        layers = [l for l in (self.layers or []) if l]
+        if not layers and self.layer:
+            layers = [self.layer]
+        return layers
 
 
 class JobProgress(BaseModel):
@@ -54,6 +63,7 @@ class JobProgress(BaseModel):
     eta_seconds: Optional[float] = None
     elapsed_seconds: float = 0.0
     message: str = ""
+    last_error: str = ""
     export_files: List[str] = Field(default_factory=list)
 
 

@@ -282,8 +282,11 @@ def import_features(payload: dict) -> dict:
 def start_download(req: DownloadRequest) -> dict:
     if not regions_data.get_region(req.region):
         raise HTTPException(status_code=404, detail=f"Unknown region: {req.region}")
+    layers = req.effective_layers()
+    if not layers:
+        raise HTTPException(status_code=400, detail="Kamida bitta qatlam tanlang")
     job_id = _jobs.start(
-        layer=req.layer,
+        layers=layers,
         region=req.region,
         district=req.district,
         grid_size=req.grid_size,
@@ -300,8 +303,9 @@ def resume_download(job_id: str) -> dict:
     last = _db.get_last_job()
     if not last or last["job_id"] != job_id:
         raise HTTPException(status_code=404, detail="Job not found for resume")
+    layers = [l for l in str(last.get("layer") or "").split(",") if l]
     new_id = _jobs.start(
-        layer=last["layer"],
+        layers=layers,
         region=last["region"],
         district=last["district"],
         grid_size=last["grid_size"],

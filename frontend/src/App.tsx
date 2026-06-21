@@ -1,24 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Api, exportFileUrl, subscribeJob } from "./api";
-import { SessionBadge } from "./components/SessionBadge";
-import { LoginPanel } from "./components/LoginPanel";
-import { CollectorPanel } from "./components/CollectorPanel";
 import { ProgressPanel } from "./components/ProgressPanel";
-import type {
-  AppConfig,
-  ExportFormat,
-  JobProgress,
-  LastJob,
-  Layer,
-  SessionStatus,
-} from "./types";
+import type { AppConfig, ExportFormat, JobProgress, Layer } from "./types";
 
 const GRID_SIZES = [500, 1000, 2000];
 const FORMATS: ExportFormat[] = ["shp", "gpkg", "geojson", "kml"];
 const ALL_DISTRICTS = "Hammasi";
 
 export default function App() {
-  const [session, setSession] = useState<SessionStatus | null>(null);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const [regions, setRegions] = useState<string[]>([]);
   const [districts, setDistricts] = useState<string[]>([]);
@@ -26,7 +15,7 @@ export default function App() {
 
   const [region, setRegion] = useState("");
   const [district, setDistrict] = useState(ALL_DISTRICTS);
-  const [layer, setLayer] = useState("");
+  const [selectedLayers, setSelectedLayers] = useState<string[]>([]);
   const [gridSize, setGridSize] = useState(1000);
   const [formats, setFormats] = useState<ExportFormat[]>(["shp"]);
   const [maxWorkers, setMaxWorkers] = useState(12);
@@ -37,25 +26,10 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<string[] | null>(null);
-  const [resumable, setResumable] = useState<LastJob | null>(null);
 
-  // Holds the cleanup fn for the active job subscription.
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
   // ---- Initial load -------------------------------------------------- //
-  const refreshSession = useCallback(async () => {
-    try {
-      setSession(await Api.session());
-    } catch (e) {
-      setSession({
-        authenticated: false,
-        browser: null,
-        cookie_count: 0,
-        message: String(e),
-      });
-    }
-  }, []);
-
   useEffect(() => {
     (async () => {
       try {
@@ -67,28 +41,14 @@ export default function App() {
         setRegions(r.regions);
         setLayers(l.layers);
         if (cfg) setAppConfig(cfg);
-        if (l.layers[0]) setLayer(l.layers[0].name);
+        if (l.layers[0]) setSelectedLayers([l.layers[0].name]);
         if (r.regions[0]) setRegion(r.regions[0]);
       } catch (e) {
         setError(`Backendga ulanib bo‘lmadi: ${e}`);
       }
-      refreshSession();
-      // Offer to resume an unfinished previous session.
-      try {
-        const { job } = await Api.lastSession();
-        if (
-          job &&
-          job.state !== "completed" &&
-          job.completed_cells < job.total_cells
-        ) {
-          setResumable(job);
-        }
-      } catch {
-        /* ignore */
-      }
     })();
     return () => unsubscribeRef.current?.();
-  }, [refreshSession]);
+  }, []);
 
   // ---- Districts depend on region ------------------------------------ //
   useEffect(() => {
@@ -121,20 +81,26 @@ export default function App() {
     };
   }, [region, gridSize]);
 
-  const toggleFormat = (f: ExportFormat) => {
+  const toggleFormat = (f: ExportFormat) =>
     setFormats((prev) =>
       prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]
     );
-  };
+
+  const toggleLayer = (name: string) =>
+    setSelectedLayers((prev) =>
+      prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]
+    );
 
   const canStart = useMemo(
     () =>
-      !!region && !!layer && formats.length > 0 && !busy &&
+      !!region &&
+      selectedLayers.length > 0 &&
+      formats.length > 0 &&
+      !busy &&
       progress?.state !== "running",
-    [region, layer, formats, busy, progress]
+    [region, selectedLayers, formats, busy, progress]
   );
 
-  // ---- Progress subscription helper ---------------------------------- //
   const track = useCallback((id: string) => {
     unsubscribeRef.current?.();
     setProgress(null);
@@ -151,17 +117,15 @@ export default function App() {
     });
   }, []);
 
-  // ---- Start download (collects + auto-exports to file) -------------- //
   const startDownload = async () => {
     setError(null);
     setExportResult(null);
-    setResumable(null);
     setBusy(true);
     try {
       const { job_id } = await Api.startDownload({
         region,
         district: district === ALL_DISTRICTS ? null : district,
-        layer,
+        layers: selectedLayers,
         grid_size: gridSize,
         formats,
         max_workers: maxWorkers,
@@ -176,22 +140,6 @@ export default function App() {
     }
   };
 
-  const doResume = async () => {
-    if (!resumable) return;
-    setError(null);
-    setBusy(true);
-    setResumable(null);
-    try {
-      const { job_id } = await Api.resumeDownload(resumable.job_id);
-      setJobId(job_id);
-      track(job_id);
-    } catch (e) {
-      setError(String(e));
-      setBusy(false);
-    }
-  };
-
-  // Manual re-export of already-collected data (e.g. to a different format).
   const doExport = async () => {
     setError(null);
     try {
@@ -229,26 +177,10 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>UZKAD SHP Downloader</h1>
-        <SessionBadge session={session} onRefresh={refreshSession} />
+        <span className="source-badge">Manba: NGIS (ochiq)</span>
       </header>
 
       {error && <div className="alert error">{error}</div>}
-
-      <LoginPanel session={session} onSessionChange={refreshSession} />
-
-      {resumable && (
-        <div className="alert info">
-          Tugallanmagan sessiya topildi: <strong>{resumable.region}</strong>
-          {resumable.district ? ` / ${resumable.district}` : ""} (
-          {resumable.completed_cells}/{resumable.total_cells} katak).{" "}
-          <button className="link-btn" onClick={doResume}>
-            Davom ettirish
-          </button>{" "}
-          <button className="link-btn" onClick={() => setResumable(null)}>
-            Yopish
-          </button>
-        </div>
-      )}
 
       <main className="layout">
         <section className="form-card">
@@ -263,10 +195,7 @@ export default function App() {
           </Field>
 
           <Field label="Tuman">
-            <select
-              value={district}
-              onChange={(e) => setDistrict(e.target.value)}
-            >
+            <select value={district} onChange={(e) => setDistrict(e.target.value)}>
               <option value={ALL_DISTRICTS}>{ALL_DISTRICTS}</option>
               {districts.map((d) => (
                 <option key={d} value={d}>
@@ -276,14 +205,19 @@ export default function App() {
             </select>
           </Field>
 
-          <Field label="Qatlam">
-            <select value={layer} onChange={(e) => setLayer(e.target.value)}>
+          <Field label="Qatlamlar (bir nechtasini tanlash mumkin)">
+            <div className="checkbox-list">
               {layers.map((l) => (
-                <option key={l.name} value={l.name}>
-                  {l.title}
-                </option>
+                <label key={l.name} className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={selectedLayers.includes(l.name)}
+                    onChange={() => toggleLayer(l.name)}
+                  />
+                  <span>{l.title}</span>
+                </label>
               ))}
-            </select>
+            </div>
           </Field>
 
           <Field label="Grid o‘lchami (m)">
@@ -328,23 +262,19 @@ export default function App() {
 
           {estimate != null && (
             <p className="hint">
-              Taxminiy kataklar soni:{" "}
+              Taxminiy kataklar soni (har qatlam uchun):{" "}
               <strong>{estimate.toLocaleString()}</strong>
+              {selectedLayers.length > 1 && (
+                <> × {selectedLayers.length} qatlam</>
+              )}
               {estimate > 5000 && (
-                <span className="warn-text">
-                  {" "}
-                  — katta hudud, yuklash uzoq davom etishi mumkin.
-                </span>
+                <span className="warn-text"> — katta hudud, uzoq davom etishi mumkin.</span>
               )}
             </p>
           )}
 
           <div className="actions">
-            <button
-              className="btn primary"
-              onClick={startDownload}
-              disabled={!canStart}
-            >
+            <button className="btn primary" onClick={startDownload} disabled={!canStart}>
               {busy ? "Yuklanmoqda..." : "EXPORT"}
             </button>
             {downloadFinished && (
@@ -357,15 +287,19 @@ export default function App() {
           {exportResult && (
             <div className="alert success">
               <strong>Eksport tayyor:</strong>
-              <ul>
-                {exportResult.map((f) => (
-                  <li key={f}>
-                    <button className="link-btn" onClick={() => openFile(f)}>
-                      {f}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              {exportResult.length === 0 ? (
+                <p className="hint">Tanlangan hududda obyekt topilmadi.</p>
+              ) : (
+                <ul>
+                  {exportResult.map((f) => (
+                    <li key={f}>
+                      <button className="link-btn" onClick={() => openFile(f)}>
+                        {f}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {appConfig?.exports_dir && window.uzkad?.openPath && (
                 <button className="btn secondary small" onClick={openFolder}>
                   Papkani ochish
@@ -382,14 +316,6 @@ export default function App() {
           onCancel={cancel}
         />
       </main>
-
-      <CollectorPanel
-        region={region}
-        district={district === ALL_DISTRICTS ? null : district}
-        gridSize={gridSize}
-        layer={layer}
-        formats={formats}
-      />
     </div>
   );
 }

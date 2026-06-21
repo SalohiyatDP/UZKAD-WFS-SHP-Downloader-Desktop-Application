@@ -32,7 +32,7 @@ class JobManager:
     # ------------------------------------------------------------------ #
     def start(
         self,
-        layer: str,
+        layers,
         region: str,
         district: Optional[str],
         grid_size: int,
@@ -65,7 +65,7 @@ class JobManager:
         def _run() -> None:
             try:
                 downloader.run(
-                    layer=layer,
+                    layers=layers,
                     region=region,
                     district=district,
                     grid_size=grid_size,

@@ -134,7 +134,7 @@ class GridDownloader:
     # ------------------------------------------------------------------ #
     def run(
         self,
-        layer: str,
+        layers,
         region: str,
         district: Optional[str],
         grid_size: int,
@@ -144,17 +144,28 @@ class GridDownloader:
         export_crs: str = config.DEFAULT_EXPORT_CRS,
         auto_export: bool = True,
     ) -> DownloadStats:
+        if isinstance(layers, str):
+            layers = [layers]
+        layers = [l for l in (layers or []) if l]
+        if not layers:
+            raise ValueError("No layers selected")
+
         region_info = get_region(region)
         if not region_info:
             raise ValueError(f"Unknown region: {region}")
 
+        eff_district = (
+            district
+            if district and district.lower() not in ("hammasi", "all", "barchasi")
+            else None
+        )
         cql = build_region_filter(region, district)
 
         # Validate / extend the (approximate) region bbox against the layer's
-        # true WGS84 extent so the grid never under-covers the data.
+        # true extent so the grid never under-covers the data.
         clamp_to = None
         try:
-            clamp_to = self.client.get_layer_extent_4326(layer)
+            clamp_to = self.client.get_layer_extent_4326(layers[0])
         except Exception:  # noqa: BLE001
             clamp_to = None
 
@@ -164,29 +175,40 @@ class GridDownloader:
             padding_deg=config.REGION_BBOX_PADDING_DEG,
             clamp_to=clamp_to,
         )
-        self.stats.total_cells = len(cells)
+        n_cells = len(cells)
+        tasks = [
+            (li * n_cells + cell.index, layer, cell)
+            for li, layer in enumerate(layers)
+            for cell in cells
+        ]
+        self.stats.total_cells = len(tasks)
         self.stats.started_at = time.time()
         self.stats.state = "running"
-        self.stats.message = f"Downloading {region} / {district or 'Hammasi'}"
+        self.stats.message = (
+            f"Yuklanmoqda: {region} / {district or 'Hammasi'} — "
+            f"{len(layers)} qatlam"
+        )
 
-        self.db.save_job(self._job_row(layer, region, district, grid_size))
+        joined = ",".join(layers)
+        self.db.save_job(self._job_row(joined, region, district, grid_size))
 
         already = self.db.completed_cells(self.job_id) if resume else set()
         if already:
             self.stats.completed_cells = len(already)
-            log.info("Resuming job %s; %s cells already done", self.job_id, len(already))
-        pending = [c for c in cells if c.index not in already]
-
+            log.info("Resuming job %s; %s tasks already done", self.job_id, len(already))
+        pending = [t for t in tasks if t[0] not in already]
         self._emit()
 
         workers = max(config.MIN_WORKERS, min(max_workers, config.MAX_WORKERS))
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(self._download_cell, layer, cell, cql): cell
-                for cell in pending
+                executor.submit(
+                    self._download_cell, layer, cell, cql, region, eff_district
+                ): (gi, layer, cell)
+                for (gi, layer, cell) in pending
             }
             for future in as_completed(futures):
-                cell = futures[future]
+                gi, layer, cell = futures[future]
                 if self._cancel.is_set():
                     break
                 self._wait_if_paused()
@@ -197,35 +219,32 @@ class GridDownloader:
                         self.stats.features_stored += stored
                         self.stats.duplicates_removed += max(0, found - stored)
                         self.stats.completed_cells += 1
-                    self.db.mark_cell(self.job_id, cell.index, "done")
+                    self.db.mark_cell(self.job_id, gi, "done")
                 except Exception as exc:  # noqa: BLE001
                     with self._lock:
                         self.stats.failed_cells += 1
                         self.stats.completed_cells += 1
                         self.stats.last_error = str(exc)[:300]
-                    self.db.mark_cell(self.job_id, cell.index, "failed")
-                    log.warning("Cell %s failed: %s", cell.index, exc)
+                    self.db.mark_cell(self.job_id, gi, "failed")
+                    log.warning("Task %s (%s) failed: %s", gi, layer, exc)
                 self._emit()
 
         if self._cancel.is_set():
             self.stats.state = "cancelled"
-            self.stats.message = "Download cancelled"
-            self.db.save_job(self._job_row(layer, region, district, grid_size))
+            self.stats.message = "Yuklash bekor qilindi"
+            self.db.save_job(self._job_row(joined, region, district, grid_size))
             self._emit()
             return self.stats
 
-        # Download finished successfully. Optionally export to files while the
-        # job is still reported as "running" so the WebSocket delivers the final
-        # progress (with export_files) before terminating.
         if auto_export and formats:
-            self._run_export(formats, region, district, export_crs)
+            self._run_export(formats, region, eff_district, layers, export_crs)
 
         self.stats.state = "completed"
         self.stats.message = (
-            f"Done: {self.stats.features_stored} unique features "
-            f"({self.stats.duplicates_removed} duplicates removed)"
+            f"Tayyor: {self.stats.features_stored} ta unikal obyekt "
+            f"({self.stats.duplicates_removed} dublikat olib tashlandi)"
         )
-        self.db.save_job(self._job_row(layer, region, district, grid_size))
+        self.db.save_job(self._job_row(joined, region, district, grid_size))
         self._emit()
         return self.stats
 
@@ -235,24 +254,38 @@ class GridDownloader:
         formats: List[str],
         region: str,
         district: Optional[str],
+        layers: List[str],
         export_crs: str,
     ) -> None:
-        try:
-            self.stats.message = "Eksport qilinmoqda (faylga yozilmoqda)..."
-            self._emit()
-            exporter = Exporter(self.db)
-            files = exporter.export(
-                formats=formats,
-                region=region,
-                district=district if district and district.lower() not in
-                ("hammasi", "all") else None,
-                export_crs=export_crs,
+        from .exporter import Exporter
+
+        self.stats.message = "Eksport qilinmoqda (faylga yozilmoqda)..."
+        self._emit()
+        exporter = Exporter(self.db)
+        files: List[str] = []
+        for layer in layers:
+            try:
+                files.extend(
+                    exporter.export(
+                        formats=formats,
+                        region=region,
+                        district=district,
+                        source_layer=layer,
+                        export_crs=export_crs,
+                    )
+                )
+            except ValueError as exc:
+                # Layer produced no features in this area; skip it.
+                log.info("Export skipped for %s: %s", layer, exc)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("Export failed for %s", layer)
+                self.stats.last_error = str(exc)[:300]
+        self.stats.export_files = files
+        if not files:
+            self.stats.last_error = self.stats.last_error or (
+                "Eksport uchun obyekt topilmadi (tanlangan hududda 0 obyekt)."
             )
-            self.stats.export_files = files
-            log.info("Auto-export produced %s file(s)", len(files))
-        except Exception as exc:  # noqa: BLE001
-            log.exception("Auto-export failed")
-            self.stats.message = f"Yuklash tugadi, ammo eksportda xato: {exc}"
+        log.info("Auto-export produced %s file(s)", len(files))
 
     # ------------------------------------------------------------------ #
     def _wait_if_paused(self) -> None:
@@ -260,19 +293,25 @@ class GridDownloader:
             time.sleep(0.25)
 
     def _download_cell(
-        self, layer: str, cell: GridCell, cql: Optional[str]
+        self, layer: str, cell: GridCell, cql: Optional[str],
+        region: Optional[str] = None, district: Optional[str] = None,
     ) -> Tuple[int, int]:
         """Download one cell; return (features_found, features_stored_new)."""
         if self._cancel.is_set():
             return 0, 0
         self._wait_if_paused()
         features = self.client.get_features_bbox(layer, cell.bbox, cql_filter=cql)
-        rows = self._features_to_rows(features)
+        rows = self._features_to_rows(features, region, district, layer)
         stored = self.db.upsert_features(rows) if rows else 0
         return len(features), stored
 
     @staticmethod
-    def _features_to_rows(features: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _features_to_rows(
+        features: List[Dict[str, Any]],
+        region: Optional[str] = None,
+        district: Optional[str] = None,
+        source_layer: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         rows: List[Dict[str, Any]] = []
         for feat in features:
             props = feat.get("properties") or {}
@@ -281,26 +320,32 @@ class GridDownloader:
                 continue
             dedup_key = make_dedup_key(props)
             if dedup_key is None:
-                # No stable key: fall back to feature id or geometry hash.
                 fid = feat.get("id")
-                dedup_key = f"id:{fid}" if fid else None
+                dedup_key = f"id:{fid}" if fid is not None else None
             try:
                 wkb_bytes = shapely_wkb.dumps(shape(geom))
             except Exception:  # noqa: BLE001 - skip invalid geometries
                 continue
             if dedup_key is None:
                 dedup_key = f"geom:{hash(wkb_bytes)}"
+            # Namespace the dedup key by layer so ids from different services
+            # never collide.
+            if source_layer:
+                dedup_key = f"{source_layer}|{dedup_key}"
             rows.append(
                 {
                     "dedup_key": dedup_key,
                     "uid": _s(props.get("uid")),
                     "suid": _s(props.get("suid")),
                     "cadastral_number": _s(props.get("cadastral_number")),
-                    "region": _s(props.get("region")),
-                    "district": _s(props.get("district")),
+                    # Stamp the selected region/district when the source data
+                    # lacks them (e.g. ArcGIS layers), so exports can filter.
+                    "region": _s(props.get("region")) or _s(region),
+                    "district": _s(props.get("district")) or _s(district),
                     "legal_area": _f(props.get("legal_area")),
                     "gis_area": _f(props.get("gis_area")),
                     "property_kind": _s(props.get("property_kind")),
+                    "source_layer": _s(source_layer),
                     "geometry_wkb": wkb_bytes,
                 }
             )

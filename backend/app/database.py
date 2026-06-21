@@ -28,11 +28,13 @@ CREATE TABLE IF NOT EXISTS features (
     legal_area      REAL,
     gis_area        REAL,
     property_kind   TEXT,
+    source_layer    TEXT,
     geometry_wkb    BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_features_cadastral ON features(cadastral_number);
 CREATE INDEX IF NOT EXISTS idx_features_district  ON features(district);
 CREATE INDEX IF NOT EXISTS idx_features_region    ON features(region);
+CREATE INDEX IF NOT EXISTS idx_features_layer     ON features(source_layer);
 
 CREATE TABLE IF NOT EXISTS jobs (
     job_id        TEXT PRIMARY KEY,
@@ -80,6 +82,10 @@ class FeatureDB:
         self._conn.execute("PRAGMA synchronous=NORMAL;")
         with self._lock:
             self._conn.executescript(SCHEMA)
+            # Migrate older DBs that predate the source_layer column.
+            cols = {r[1] for r in self._conn.execute("PRAGMA table_info(features)")}
+            if "source_layer" not in cols:
+                self._conn.execute("ALTER TABLE features ADD COLUMN source_layer TEXT")
             self._conn.commit()
 
     # ------------------------------------------------------------------ #
@@ -101,9 +107,10 @@ class FeatureDB:
         sql = (
             "INSERT OR IGNORE INTO features "
             "(dedup_key, uid, suid, cadastral_number, region, district, "
-            " legal_area, gis_area, property_kind, geometry_wkb) "
+            " legal_area, gis_area, property_kind, source_layer, geometry_wkb) "
             "VALUES (:dedup_key, :uid, :suid, :cadastral_number, :region, "
-            ":district, :legal_area, :gis_area, :property_kind, :geometry_wkb)"
+            ":district, :legal_area, :gis_area, :property_kind, :source_layer, "
+            ":geometry_wkb)"
         )
         with self._lock:
             before = self._conn.total_changes
@@ -112,7 +119,8 @@ class FeatureDB:
             return self._conn.total_changes - before
 
     def count_features(self, region: Optional[str] = None,
-                        district: Optional[str] = None) -> int:
+                        district: Optional[str] = None,
+                        source_layer: Optional[str] = None) -> int:
         clauses, params = [], []
         if region:
             clauses.append("region = ?")
@@ -120,6 +128,9 @@ class FeatureDB:
         if district:
             clauses.append("district = ?")
             params.append(district)
+        if source_layer:
+            clauses.append("source_layer = ?")
+            params.append(source_layer)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._lock:
             cur = self._conn.execute(f"SELECT COUNT(*) FROM features{where}", params)
@@ -127,7 +138,7 @@ class FeatureDB:
 
     def iter_features(
         self, region: Optional[str] = None, district: Optional[str] = None,
-        batch_size: int = 5000,
+        source_layer: Optional[str] = None, batch_size: int = 5000,
     ) -> Iterator[Dict[str, Any]]:
         """Yield stored feature rows (including geometry_wkb) in batches."""
         clauses, params = [], []
@@ -137,6 +148,9 @@ class FeatureDB:
         if district:
             clauses.append("district = ?")
             params.append(district)
+        if source_layer:
+            clauses.append("source_layer = ?")
+            params.append(source_layer)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         cols = ", ".join(_COLUMNS + ["geometry_wkb"])
         with self._lock:
