@@ -13,8 +13,13 @@ RUN npm run build:renderer
 FROM python:3.13-slim
 WORKDIR /app/backend
 
+# System libs needed at runtime by the GDAL wheels (fiona/pyogrio) and TLS.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libexpat1 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 # Geospatial wheels (pyogrio/fiona/shapely/pyproj) bundle GDAL/GEOS/PROJ,
-# so no system GDAL is required.
+# so no full system GDAL is required (only libexpat1 above).
 COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
