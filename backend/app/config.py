@@ -113,7 +113,7 @@ ARCGIS_REGION_BORDER_URL = os.environ.get(
 )
 ARCGIS_DISTRICT_BORDER_URL = os.environ.get(
     "UZKAD_ARCGIS_DISTRICT_BORDER",
-    "https://db.ngis.uz/db/rest/services/Hosted/TUMAN_BORDER/FeatureServer/0",
+    "https://db.ngis.uz/db/rest/services/Hosted/TUMAN_BORDER/FeatureServer/2",
 )
 USE_BOUNDARY_MASK = os.environ.get("UZKAD_USE_BOUNDARY_MASK", "1") not in ("0", "false", "")
 
