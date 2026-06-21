@@ -24,6 +24,11 @@ for _d in (STORAGE_DIR, EXPORTS_DIR, LOGS_DIR):
 DB_PATH = Path(os.environ.get("UZKAD_DB_PATH", STORAGE_DIR / "features.sqlite"))
 LOG_FILE = LOGS_DIR / "application.log"
 
+# Built frontend (Vite dist) served by the backend in browser/Docker mode.
+STATIC_DIR = Path(
+    os.environ.get("UZKAD_STATIC_DIR", PROJECT_ROOT / "frontend" / "dist")
+)
+
 # --------------------------------------------------------------------------- #
 # WFS endpoint
 # --------------------------------------------------------------------------- #

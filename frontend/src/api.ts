@@ -17,6 +17,12 @@ export async function backendUrl(): Promise<string> {
   if (cachedBackendUrl) return cachedBackendUrl;
   if (window.uzkad?.getBackendUrl) {
     cachedBackendUrl = await window.uzkad.getBackendUrl();
+  } else if (
+    typeof window !== "undefined" &&
+    window.location?.origin?.startsWith("http")
+  ) {
+    // Browser / Docker: backend serves the UI, so use the same origin.
+    cachedBackendUrl = window.location.origin;
   } else {
     cachedBackendUrl = "http://127.0.0.1:8000";
   }

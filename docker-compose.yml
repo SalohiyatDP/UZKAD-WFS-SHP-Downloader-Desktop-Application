@@ -1,0 +1,14 @@
+services:
+  uzkad:
+    build: .
+    container_name: uzkad-downloader
+    ports:
+      - "8000:8000"
+    environment:
+      - UZKAD_DATA_SOURCE=arcgis
+    volumes:
+      # Persist outputs and database on the host.
+      - ./exports:/app/exports
+      - ./storage:/app/storage
+      - ./logs:/app/logs
+    restart: unless-stopped

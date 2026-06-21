@@ -232,7 +232,7 @@ def collector(
     region_info = regions_data.get_region(region)
     if not region_info:
         raise HTTPException(status_code=404, detail=f"Unknown region: {region}")
-    target_layer = layer or config.LAYERS[0]["name"]
+    target_layer = layer or config.active_layers()[0]["name"]
     cql = build_region_filter(region, district)
     safe = "".join(c if c.isalnum() else "_" for c in (district or region))
     filename = f"uzkad_{safe}.geojson"
@@ -408,6 +408,16 @@ async def ws_progress(websocket: WebSocket, job_id: str) -> None:
             await websocket.close()
         except Exception:
             pass
+
+
+# --------------------------------------------------------------------------- #
+# Static frontend (browser / Docker mode). Mounted last so /api and /ws win.
+# --------------------------------------------------------------------------- #
+if config.STATIC_DIR.exists():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=str(config.STATIC_DIR), html=True), name="ui")
+    log.info("Serving frontend from %s", config.STATIC_DIR)
 
 
 def main() -> None:

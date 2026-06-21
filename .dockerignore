@@ -1,0 +1,16 @@
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.pyc
+frontend/dist
+frontend/dist-electron
+frontend/release
+storage/*.sqlite
+storage/*.sqlite-wal
+storage/*.sqlite-shm
+storage/*.json
+exports/*
+logs/*.log
+.git
+.gitignore
+**/.DS_Store

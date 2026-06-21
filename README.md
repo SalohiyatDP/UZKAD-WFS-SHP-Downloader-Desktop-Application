@@ -13,6 +13,31 @@ parallel, results are de-duplicated and stored in SQLite, then exported.
 
 ---
 
+## 🚀 Tez ishga tushirish (Docker)
+
+Avval **Docker Desktop** ni o‘rnating va ishga tushiring (Docker xizmati ishlab
+turishi kerak): [Docker Desktop yuklab olish](https://www.docker.com/products/docker-desktop/)
+
+So‘ng loyiha papkasida:
+
+```bash
+docker compose up --build
+```
+
+Tayyor bo‘lgach, brauzerda oching: **http://localhost:8000**
+
+- Ma'lumot manbai sukut bo‘yicha **NGIS ArcGIS REST** (`db.ngis.uz`) — login/token
+  talab qilmaydi.
+- Eksport fayllari host'dagi `exports/` papkasiga, ma'lumotlar bazasi
+  `storage/` ga saqlanadi (Docker volume orqali).
+- To‘xtatish: `Ctrl+C`, yoki `docker compose down`.
+
+> Docker desktop ilovasi (Electron oynasi) o‘rnига brauzer interfeysini beradi;
+> barcha funksiyalar (yig‘ish, dublikatlarni tozalash, SHP/GPKG/GeoJSON/KML
+> eksport) ishlaydi.
+
+---
+
 ## Architecture
 
 ```
