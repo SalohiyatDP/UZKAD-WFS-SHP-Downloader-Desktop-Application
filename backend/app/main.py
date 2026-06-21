@@ -216,7 +216,12 @@ def estimate(region: str, grid_size: int = config.DEFAULT_GRID_SIZE) -> dict:
     if not region_info:
         raise HTTPException(status_code=404, detail=f"Unknown region: {region}")
     cells = estimate_cell_count(tuple(region_info["bbox_4326"]), float(grid_size))
-    return {"region": region, "grid_size": grid_size, "estimated_cells": cells}
+    return {
+        "region": region,
+        "grid_size": grid_size,
+        "estimated_cells": cells,
+        "bbox_4326": list(region_info["bbox_4326"]),
+    }
 
 
 # --------------------------------------------------------------------------- #

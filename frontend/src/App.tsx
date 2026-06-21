@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Api, exportFileUrl, subscribeJob } from "./api";
 import { ProgressPanel } from "./components/ProgressPanel";
+import { MapPanel } from "./components/MapPanel";
 import type { AppConfig, ExportFormat, JobProgress, Layer } from "./types";
 
 const GRID_SIZES = [500, 1000, 2000];
@@ -21,6 +22,7 @@ export default function App() {
   const [maxWorkers, setMaxWorkers] = useState(12);
 
   const [estimate, setEstimate] = useState<number | null>(null);
+  const [regionBbox, setRegionBbox] = useState<number[] | null>(null);
   const [progress, setProgress] = useState<JobProgress | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,7 +73,10 @@ export default function App() {
     (async () => {
       try {
         const est = await Api.estimate(region, gridSize);
-        if (!cancelled) setEstimate(est.estimated_cells);
+        if (!cancelled) {
+          setEstimate(est.estimated_cells);
+          setRegionBbox(est.bbox_4326 ?? null);
+        }
       } catch {
         if (!cancelled) setEstimate(null);
       }
@@ -309,12 +314,15 @@ export default function App() {
           )}
         </section>
 
-        <ProgressPanel
-          progress={progress}
-          onPause={pause}
-          onResume={resume}
-          onCancel={cancel}
-        />
+        <div className="right-col">
+          <ProgressPanel
+            progress={progress}
+            onPause={pause}
+            onResume={resume}
+            onCancel={cancel}
+          />
+          <MapPanel bbox={regionBbox} progress={progress} />
+        </div>
       </main>
     </div>
   );

@@ -80,7 +80,7 @@ export const Api = {
     return api<Record<string, unknown>>(`/api/wfs/probe?${params.toString()}`);
   },
   estimate: (region: string, gridSize: number) =>
-    api<{ estimated_cells: number }>(
+    api<{ estimated_cells: number; bbox_4326: number[] }>(
       `/api/estimate?region=${encodeURIComponent(region)}&grid_size=${gridSize}`
     ),
   collector: (
