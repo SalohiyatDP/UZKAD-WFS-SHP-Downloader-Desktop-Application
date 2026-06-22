@@ -17,9 +17,24 @@ export default function App() {
   const [region, setRegion] = useState("");
   const [district, setDistrict] = useState(ALL_DISTRICTS);
   const [selectedLayers, setSelectedLayers] = useState<string[]>([]);
-  const [gridSize, setGridSize] = useState(1000);
-  const [formats, setFormats] = useState<ExportFormat[]>(["shp"]);
-  const [maxWorkers, setMaxWorkers] = useState(12);
+  const savedPrefs = useMemo<Record<string, unknown>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("uzkad_prefs") || "{}");
+    } catch {
+      return {};
+    }
+  }, []);
+  const [gridSize, setGridSize] = useState<number>(
+    typeof savedPrefs.gridSize === "number" ? (savedPrefs.gridSize as number) : 1000
+  );
+  const [formats, setFormats] = useState<ExportFormat[]>(
+    Array.isArray(savedPrefs.formats) && savedPrefs.formats.length
+      ? (savedPrefs.formats as ExportFormat[])
+      : ["shp"]
+  );
+  const [maxWorkers, setMaxWorkers] = useState<number>(
+    typeof savedPrefs.maxWorkers === "number" ? (savedPrefs.maxWorkers as number) : 12
+  );
 
   const [estimate, setEstimate] = useState<number | null>(null);
   const [regionBbox, setRegionBbox] = useState<number[] | null>(null);
@@ -44,8 +59,20 @@ export default function App() {
         setRegions(r.regions);
         setLayers(l.layers);
         if (cfg) setAppConfig(cfg);
-        if (l.layers[0]) setSelectedLayers([l.layers[0].name]);
-        if (r.regions[0]) setRegion(r.regions[0]);
+        const savedLayers = Array.isArray(savedPrefs.layers)
+          ? (savedPrefs.layers as string[]).filter((n) =>
+              l.layers.some((x) => x.name === n)
+            )
+          : [];
+        setSelectedLayers(
+          savedLayers.length ? savedLayers : l.layers[0] ? [l.layers[0].name] : []
+        );
+        const savedRegion = savedPrefs.region as string | undefined;
+        setRegion(
+          savedRegion && r.regions.includes(savedRegion)
+            ? savedRegion
+            : r.regions[0] ?? ""
+        );
       } catch (e) {
         setError(`Backendga ulanib bo‘lmadi: ${e}`);
       }
@@ -86,6 +113,18 @@ export default function App() {
       cancelled = true;
     };
   }, [region, gridSize]);
+
+  // Persist user selections for next time.
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "uzkad_prefs",
+        JSON.stringify({ region, layers: selectedLayers, gridSize, formats, maxWorkers })
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [region, selectedLayers, gridSize, formats, maxWorkers]);
 
   const toggleFormat = (f: ExportFormat) =>
     setFormats((prev) =>

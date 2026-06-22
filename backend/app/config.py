@@ -153,31 +153,8 @@ def active_layers() -> list:
 GEOMETRY_FIELD = "geometry"
 DEDUP_KEYS = ["uid", "cadastral_number"]  # checked in order
 
-# Default User-Agent so requests look like a normal browser session.
+# Default User-Agent so requests look like a normal browser.
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
-
-# Browsers we will try to read cookies from, in priority order.
-SUPPORTED_BROWSERS = ["chrome", "edge", "brave", "chromium", "firefox"]
-
-# The cookie domain we care about for the UZKAD session.
-SESSION_DOMAIN = "mulk.kadastr.uz"
-
-# Portal the user opens (already signed in via OneID / ERI in another window).
-# Using mulk.kadastr.uz directly means the captured cookies are first-party to
-# the WFS host, which is more reliable than a cross-subdomain (sap) session.
-# Accepts any ready portal link, e.g.
-# https://mulk.kadastr.uz/index.jsp#portal/details/transaction/<uuid>/
-PORTAL_URL = os.environ.get(
-    "UZKAD_PORTAL_URL",
-    os.environ.get("UZKAD_SAP_LOGIN_URL", "https://mulk.kadastr.uz/index.jsp"),
-)
-
-# Parent domain whose cookies (and bearer token) authorise the WFS endpoint.
-SESSION_COOKIE_DOMAIN = "kadastr.uz"
-
-# Where the captured session (cookies + headers) is persisted so it survives
-# backend restarts within a work session.
-SESSION_FILE = STORAGE_DIR / "session.json"
