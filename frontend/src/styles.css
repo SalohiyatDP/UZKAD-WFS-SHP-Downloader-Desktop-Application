@@ -551,15 +551,62 @@ select {
   font-size: 12px;
   color: var(--muted);
 }
+.map-wrap {
+  position: relative;
+}
 .map-canvas {
   width: 100%;
-  height: 320px;
+  height: 420px;
   border-radius: 10px;
   overflow: hidden;
   background: #0b1220;
 }
-.map-note {
-  margin: 8px 0 0;
+.map-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 500;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 8px;
+  text-transform: capitalize;
+}
+.map-legend {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.map-legend span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.map-legend .lg-line {
+  width: 16px;
+  height: 0;
+  border-top: 2.5px solid #38bdf8;
+  display: inline-block;
+}
+.map-legend .lg-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #22c55e;
+  display: inline-block;
 }
 /* Keep Leaflet tiles/controls above panel background but readable on dark UI */
 .leaflet-container {

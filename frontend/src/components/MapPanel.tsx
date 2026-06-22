@@ -13,10 +13,16 @@ interface Props {
 
 const RUNNING_STATES = ["running", "paused"];
 
+const BOUNDARY_STYLE: L.PathOptions = {
+  color: "#38bdf8",
+  weight: 2.5,
+  fillColor: "#38bdf8",
+  fillOpacity: 0.08,
+};
+
 /**
- * Live map of the download: draws the actual region/district boundary polygon
- * and plots the real collected features (sampled centroids) as they are stored,
- * so the map reflects the true area and progress.
+ * Live map of the download: dark basemap, the actual region/district boundary
+ * polygon (filled), and the real collected features plotted as they are stored.
  */
 export function MapPanel({ region, district, bbox, progress }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -30,14 +36,14 @@ export function MapPanel({ region, district, bbox, progress }: Props) {
   // Init map once.
   useEffect(() => {
     if (mapRef.current || !containerRef.current) return;
-    const map = L.map(containerRef.current, { zoomControl: true }).setView(
-      [41.3, 69.2],
-      6
-    );
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "© OpenStreetMap",
-    }).addTo(map);
+    const map = L.map(containerRef.current, {
+      zoomControl: true,
+      attributionControl: true,
+    }).setView([41.3, 69.2], 6);
+    L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+      { maxZoom: 19, subdomains: "abcd", attribution: "© OpenStreetMap, © CARTO" }
+    ).addTo(map);
     rendererRef.current = L.canvas({ padding: 0.5 });
     pointsRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
@@ -49,7 +55,7 @@ export function MapPanel({ region, district, bbox, progress }: Props) {
     };
   }, []);
 
-  // Draw the region/district boundary when selection changes.
+  // Draw the region/district boundary when the selection changes.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !region) return;
@@ -66,10 +72,10 @@ export function MapPanel({ region, district, bbox, progress }: Props) {
         }
         if (geometry) {
           const layer = L.geoJSON(geometry as GeoJSON.GeoJsonObject, {
-            style: { color: "#38bdf8", weight: 2, fill: false },
+            style: BOUNDARY_STYLE,
           }).addTo(map);
           boundaryRef.current = layer;
-          map.fitBounds(layer.getBounds(), { padding: [12, 12] });
+          map.fitBounds(layer.getBounds(), { padding: [16, 16] });
           return;
         }
       } catch {
@@ -81,10 +87,10 @@ export function MapPanel({ region, district, bbox, progress }: Props) {
             [bbox[1], bbox[0]],
             [bbox[3], bbox[2]],
           ],
-          { color: "#38bdf8", weight: 1, fill: false }
+          BOUNDARY_STYLE
         ).addTo(map);
         boundaryRef.current = rect;
-        map.fitBounds(rect.getBounds(), { padding: [12, 12] });
+        map.fitBounds(rect.getBounds(), { padding: [16, 16] });
       }
     })();
     return () => {
@@ -101,7 +107,7 @@ export function MapPanel({ region, district, bbox, progress }: Props) {
         const { points } = await Api.featuresSample(
           region || undefined,
           district ?? undefined,
-          5000
+          6000
         );
         const group = pointsRef.current;
         if (!group) return;
@@ -109,11 +115,11 @@ export function MapPanel({ region, district, bbox, progress }: Props) {
         for (const [lon, lat] of points) {
           L.circleMarker([lat, lon], {
             renderer: rendererRef.current ?? undefined,
-            radius: 2,
-            color: "#22c55e",
-            weight: 0,
+            radius: 3,
+            color: "#0b3b1e",
+            weight: 0.5,
             fillColor: "#22c55e",
-            fillOpacity: 0.7,
+            fillOpacity: 0.85,
           }).addTo(group);
         }
       } catch {
@@ -139,22 +145,31 @@ export function MapPanel({ region, district, bbox, progress }: Props) {
     };
   }, [progress?.state, region, district]);
 
+  const pct =
+    progress && progress.total_cells > 0
+      ? Math.min(100, Math.round((progress.completed_cells / progress.total_cells) * 100))
+      : 0;
+
   return (
     <section className="map-panel">
       <div className="map-head">
         <h3>Xaritada jarayon</h3>
         {progress && (
           <span className="map-stat">
-            {progress.completed_cells}/{progress.total_cells} katak ·{" "}
-            {progress.features_stored} obyekt
+            {progress.features_stored.toLocaleString()} obyekt
           </span>
         )}
       </div>
-      <div ref={containerRef} className="map-canvas" />
-      <p className="hint map-note">
-        Ko‘k chiziq — tanlangan hudud chegarasi; yashil nuqtalar — yuklab
-        olingan obyektlar (jonli, namuna).
-      </p>
+      <div className="map-wrap">
+        <div ref={containerRef} className="map-canvas" />
+        {progress && progress.state !== "idle" && (
+          <div className="map-badge">{pct}% · {progress.state}</div>
+        )}
+        <div className="map-legend">
+          <span><i className="lg-line" /> Hudud chegarasi</span>
+          <span><i className="lg-dot" /> Yuklab olingan obyektlar</span>
+        </div>
+      </div>
     </section>
   );
 }
